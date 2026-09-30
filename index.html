@@ -262,7 +262,7 @@ function render(){
 }
 
 /* ---- الفاتورة ---- */
-const total = () => lines.reduce((s, l) => s + l.qty * l.price, 0);
+const total = () => lines.reduce((s, l) => s + Math.round(l.qty * l.price * 100) / 100, 0);
 function renderLines(){
   $('#lines').innerHTML = lines.length ? lines.map((l, k) => `<tr><td>${esc(l.name)}</td><td>${l.qty}</td><td>${fmt(l.price)}</td>
     <td>${fmt(l.qty * l.price)}</td><td><button class="btn del sm" data-rm="${k}">إزالة</button></td></tr>`).join('')
