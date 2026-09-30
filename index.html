@@ -118,7 +118,7 @@
     </section>
 
     <section id="tab-products" class="hidden">
-      <div class="card">
+      <div class="card" id="product-admin-card">
         <h2>إضافة صنف</h2>
         <div class="grid">
           <label>الاسم<input id="p-name"></label>
@@ -205,7 +205,8 @@ async function load(){
   if (err) return toast('خطأ في التحميل: ' + err.message, false);
   C = c.data; P = p.data; I = i.data; Y = y.data;
   admin = me.data?.role === 'admin';
-  $('#me').textContent = (me.data?.name || '') + (admin ? ' (مدير)' : '');
+  $('#product-admin-card').classList.toggle('hidden', !admin);
+  $('#me').textContent = (me.data?.name || '') + (admin ? ' (مدير)' : ' (بائع)');
   render();
 }
 function subscribe(){
@@ -236,9 +237,9 @@ function render(){
 
   $('#products').innerHTML = P.length ? P.map(p => `<tr><td>${esc(p.name)}</td><td>${fmt(p.price)}</td>
     <td class="${p.stock <= 0 ? 'debt' : ''}">${p.stock}</td>
-    <td><button class="btn sm" data-sup="${p.id}">توريد</button>
+    <td>${admin ? `<button class="btn sm" data-sup="${p.id}">توريد</button>
     <button class="btn alt sm" data-price="${p.id}">السعر</button>
-    ${admin ? `<button class="btn del sm" data-del-p="${p.id}">حذف</button>` : ''}</td></tr>`).join('')
+    <button class="btn del sm" data-del-p="${p.id}">حذف</button>` : '—'}</td></tr>`).join('')
     : '<tr><td colspan="4" class="empty">لا توجد بضائع. أضف أول صنف أعلاه.</td></tr>';
 
   $('#invoices').innerHTML = I.length ? I.map(i => `<tr><td>${i.id}</td><td>${esc(dt(i.created_at))}</td>

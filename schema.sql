@@ -98,6 +98,7 @@ language plpgsql security definer set search_path = public as $$
 declare v_id uuid;
 begin
   if auth.uid() is null then raise exception 'غير مصرّح'; end if;
+  if not is_admin() then raise exception 'المدير فقط'; end if;
   insert into products (name, price, stock) values (p_name, p_price, coalesce(p_stock, 0)) returning id into v_id;
   if coalesce(p_stock, 0) > 0 then
     insert into stock_movements (product_id, qty, kind) values (v_id, p_stock, 'opening');
@@ -109,6 +110,7 @@ create function receive_stock(p_product uuid, p_qty numeric, p_note text) return
 language plpgsql security definer set search_path = public as $$
 begin
   if auth.uid() is null then raise exception 'غير مصرّح'; end if;
+  if not is_admin() then raise exception 'المدير فقط'; end if;
   if p_qty is null or p_qty <= 0 then raise exception 'كمية غير صحيحة'; end if;
   update products set stock = stock + p_qty where id = p_product;
   if not found then raise exception 'صنف غير موجود'; end if;
@@ -189,7 +191,7 @@ create policy "edit"   on customers for update to authenticated using (true) wit
 create policy "delete" on customers for delete to authenticated using (is_admin());
 
 create policy "read"   on products for select to authenticated using (true);
-create policy "edit"   on products for update to authenticated using (true) with check (true);
+create policy "edit"   on products for update to authenticated using (is_admin()) with check (is_admin());
 create policy "delete" on products for delete to authenticated using (is_admin());
 
 -- المزامنة اللحظية بين البائعين
