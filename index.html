@@ -63,6 +63,7 @@
       <button data-tab="customers">العملاء</button>
       <button data-tab="products">البضائع</button>
       <button data-tab="report">التقارير</button>
+      <button data-tab="users" id="users-tab" class="hidden">المستخدمون</button>
     </nav>
 
     <section id="tab-invoice">
@@ -141,6 +142,28 @@
         <div class="scroll"><table><thead><tr><th>العميل</th><th>الدين</th></tr></thead>
         <tbody id="top-debt"></tbody></table></div></div>
     </section>
+
+    <section id="tab-users" class="hidden">
+      <div class="card">
+        <h2 id="user-form-title">إضافة مستخدم</h2>
+        <div class="grid">
+          <label>اسم المستخدم<input id="u-username" autocomplete="off"></label>
+          <label>الاسم الظاهر<input id="u-name"></label>
+          <label>الدور<select id="u-role"><option value="seller">بائع</option><option value="admin">مدير</option></select></label>
+          <label>كلمة المرور<input id="u-password" type="password" autocomplete="new-password" placeholder="6 أحرف على الأقل"></label>
+          <button id="btn-save-user" class="btn">إضافة المستخدم</button>
+          <button id="btn-cancel-user" class="btn alt hidden">إلغاء التعديل</button>
+        </div>
+        <p id="user-form-note" class="empty">كلمة المرور مطلوبة عند الإضافة، واختيارية عند التعديل.</p>
+      </div>
+      <div class="card">
+        <h2>المستخدمون</h2>
+        <div class="scroll"><table>
+          <thead><tr><th>اسم المستخدم</th><th>الاسم</th><th>الدور</th><th></th></tr></thead>
+          <tbody id="users"></tbody>
+        </table></div>
+      </div>
+    </section>
   </div>
 </div>
 
@@ -162,7 +185,7 @@ const fmt = n => (Number(n) || 0).toFixed(2);
 const dt = d => new Date(d).toLocaleString('ar', { dateStyle:'short', timeStyle:'short' });
 $('#store').textContent = STORE_NAME; document.title = STORE_NAME;
 
-let C = [], P = [], I = [], Y = [], lines = [], admin = false, channel = null, timer, stmtHtml = '';
+let C = [], P = [], I = [], Y = [], U = [], lines = [], admin = false, channel = null, timer, stmtHtml = '', editingUserId = null;
 
 function toast(msg, ok = true){
   const t = $('#toast'); t.textContent = msg; t.className = ok ? 'ok' : 'err';
@@ -189,7 +212,7 @@ sb.auth.onAuthStateChange((_e, session) => {
 /* ---- التبويبات ---- */
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
-  ['invoice','customers','products','report'].forEach(t => $('#tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
+  ['invoice','customers','products','report','users'].forEach(t => $('#tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
 });
 
 /* ---- التحميل والمزامنة اللحظية ---- */
@@ -201,14 +224,16 @@ async function load(){
     sb.from('products').select('*').order('name'),
     sb.from('invoices').select('id,total,paid,created_at,customer_id,customers(name),profiles(name)').order('id', { ascending:false }).limit(100),
     sb.from('payments').select('amount,created_at').order('created_at', { ascending:false }).limit(100),
-    sb.from('profiles').select('name,role').eq('id', session.user.id).maybeSingle()
+    sb.from('profiles').select('name,role,username').eq('id', session.user.id).maybeSingle()
   ]);
   const err = c.error || p.error || i.error || y.error || me.error;
   if (err) return toast('خطأ في التحميل: ' + err.message, false);
   C = c.data; P = p.data; I = i.data; Y = y.data;
   admin = me.data?.role === 'admin';
   $('#product-admin-card').classList.toggle('hidden', !admin);
+  $('#users-tab').classList.toggle('hidden', !admin);
   $('#me').textContent = (me.data?.name || '') + (admin ? ' (مدير)' : ' (بائع)');
+  if (admin) loadUsers();
   render();
 }
 function subscribe(){
@@ -220,6 +245,31 @@ function subscribe(){
     channel.on('postgres_changes', { event:'*', schema:'public', table:tb }, again));
   channel.subscribe();
 }
+async function loadUsers(){
+  const { data, error } = await sb.functions.invoke('user-admin', { body: { action: 'list' } });
+  if (error || data?.error) return toast(data?.error || error.message, false);
+  U = data.users || [];
+  $('#users').innerHTML = U.length ? U.map(u => `<tr><td>${esc(u.username)}</td><td>${esc(u.name)}</td>
+    <td>${u.role === 'admin' ? 'مدير' : 'بائع'}</td><td><button class="btn alt sm" data-edit-user="${u.id}">تعديل</button></td></tr>`).join('')
+    : '<tr><td colspan="4" class="empty">لا يوجد مستخدمون.</td></tr>';
+}
+function resetUserForm(){
+  editingUserId = null;
+  $('#user-form-title').textContent = 'إضافة مستخدم';
+  $('#btn-save-user').textContent = 'إضافة المستخدم';
+  $('#btn-cancel-user').classList.add('hidden');
+  $('#u-username').value = ''; $('#u-name').value = ''; $('#u-role').value = 'seller'; $('#u-password').value = '';
+}
+$('#btn-save-user').onclick = async () => {
+  const body = { action: editingUserId ? 'update' : 'create', username: $('#u-username').value.trim(), name: $('#u-name').value.trim(), role: $('#u-role').value, password: $('#u-password').value };
+  if (editingUserId) body.id = editingUserId;
+  const b = $('#btn-save-user'); b.disabled = true;
+  const { data, error } = await sb.functions.invoke('user-admin', { body });
+  b.disabled = false;
+  if (error || data?.error) return toast(data?.error || error.message, false);
+  toast(editingUserId ? 'تم تعديل المستخدم' : 'تمت إضافة المستخدم'); resetUserForm(); loadUsers();
+};
+$('#btn-cancel-user').onclick = resetUserForm;
 
 /* ---- الرسم ---- */
 function render(){
@@ -358,6 +408,12 @@ async function run(p, okMsg){ const { error } = await p; error ? toast(error.mes
 document.addEventListener('click', e => {
   const g = a => e.target.closest(`[data-${a}]`)?.dataset[a.replace(/-./g, m => m[1].toUpperCase())];
   let v;
+  if ((v = g('edit-user'))) {
+    const u = U.find(x => x.id === v); if (!u) return;
+    editingUserId = u.id; $('#user-form-title').textContent = 'تعديل مستخدم'; $('#btn-save-user').textContent = 'حفظ التعديل';
+    $('#btn-cancel-user').classList.remove('hidden'); $('#u-username').value = u.username; $('#u-name').value = u.name;
+    $('#u-role').value = u.role; $('#u-password').value = ''; $('#tab-users').scrollIntoView(); return;
+  }
   if ((v = g('rm')) !== undefined) { lines.splice(Number(v), 1); return renderLines(); }
   if ((v = g('print'))) return printInvoice(v);
   if ((v = g('stmt'))) return statement(v);
