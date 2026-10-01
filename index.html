@@ -641,6 +641,8 @@ async function printStatement(customerId, btn){
     // نفس الدالة التي تبني كشف الشاشة — فلا يمكن أن يختلف الرقمان
     const st = buildStatement(iRes.rows, yRes.rows);
     const customer = cRes.data;
+    window.__statementPreviousTitle = document.title;
+    document.title = `${customer.name} - كشف حساب`;
 
     // الأعمدة: اسم العميل | الملاحظة | القيمة | التاريخ | البائع (+ الرصيد المتحرك)
     // النوع والقيمة والأثر على الرصيد مأخوذة كما هي من buildStatement دون إعادة حساب
@@ -689,7 +691,13 @@ async function printStatement(customerId, btn){
     if (btn) { btn.disabled = false; btn.textContent = 'طباعة كشف الحساب'; }
   }
 }
-window.addEventListener('afterprint', () => { $('#print-area').innerHTML = ''; });
+window.addEventListener('afterprint', () => {
+  $('#print-area').innerHTML = '';
+  if (window.__statementPreviousTitle) {
+    document.title = window.__statementPreviousTitle;
+    delete window.__statementPreviousTitle;
+  }
+});
 
 
 /* ---- بطاقة حركة مختصرة (للإحصائيات) ---- */
