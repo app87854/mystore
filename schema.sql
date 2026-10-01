@@ -1,5 +1,6 @@
 create table profiles (
   id uuid primary key references auth.users on delete cascade,
+  username text not null unique,
   name text not null,
   role text not null default 'seller' check (role in ('admin','seller'))
 );
@@ -71,8 +72,8 @@ from customers c;
 create function handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  insert into profiles (id, name, role)
-  values (new.id, split_part(new.email, '@', 1),
+  insert into profiles (id, username, name, role)
+  values (new.id, split_part(new.email, '@', 1), split_part(new.email, '@', 1),
           case when exists (select 1 from profiles) then 'seller' else 'admin' end);
   return new;
 end $$;
@@ -86,11 +87,20 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- لمن أنشأ مستخدمين قبل تشغيل هذا السكربت
-insert into profiles (id, name, role)
-select id, split_part(email, '@', 1), 'seller' from auth.users on conflict do nothing;
+insert into profiles (id, username, name, role)
+select id, split_part(email, '@', 1), split_part(email, '@', 1), 'seller' from auth.users on conflict do nothing;
 update profiles set role = 'admin'
 where id = (select id from auth.users order by created_at limit 1)
   and not exists (select 1 from profiles where role = 'admin');
+
+-- تسجيل الدخول باسم المستخدم دون عرض بريد Auth في الواجهة
+create function login_email(p_username text) returns text
+language sql stable security definer set search_path = public, auth as $$
+  select u.email
+  from auth.users u join public.profiles p on p.id = u.id
+  where lower(p.username) = lower(trim(p_username))
+  limit 1
+$$;
 
 -- ===== العمليات: كلها ذرّية، والمنفّذ يُؤخذ من الجلسة لا من الواجهة =====
 create function add_product(p_name text, p_price numeric, p_stock numeric) returns uuid
@@ -204,3 +214,4 @@ revoke execute on function public.add_product(text, numeric, numeric) from publi
 revoke execute on function public.receive_stock(uuid, numeric, text) from public, anon;
 revoke execute on function public.create_invoice(uuid, jsonb, numeric) from public, anon;
 revoke execute on function public.add_payment(uuid, numeric, text) from public, anon;
+grant execute on function public.login_email(text) to anon, authenticated;

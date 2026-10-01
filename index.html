@@ -50,7 +50,7 @@
 
 <div id="login"><div class="card">
   <h2>تسجيل الدخول</h2>
-  <label>البريد الإلكتروني<input id="email" type="email" autocomplete="username"></label>
+  <label>اسم المستخدم<input id="username" autocomplete="username"></label>
   <label style="margin-top:10px">كلمة المرور<input id="pass" type="password" autocomplete="current-password"></label>
   <button id="btn-login" class="btn" style="width:100%;margin-top:14px">دخول</button>
 </div></div>
@@ -172,9 +172,11 @@ function printHtml(html){ $('#print').innerHTML = html; window.print(); }
 
 /* ---- الدخول ---- */
 $('#btn-login').onclick = async () => {
-  const email = $('#email').value.trim(), password = $('#pass').value;
-  if (!email || !password) return toast('أدخل البريد وكلمة المرور', false);
-  const { error } = await sb.auth.signInWithPassword({ email, password });
+  const username = $('#username').value.trim(), password = $('#pass').value;
+  if (!username || !password) return toast('أدخل اسم المستخدم وكلمة المرور', false);
+  const { data: login, error: lookupError } = await sb.rpc('login_email', { p_username: username });
+  if (lookupError || !login) return toast('اسم المستخدم غير موجود', false);
+  const { error } = await sb.auth.signInWithPassword({ email: login, password });
   if (error) toast('تعذّر الدخول: ' + error.message, false);
 };
 $('#btn-out').onclick = () => sb.auth.signOut();
