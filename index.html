@@ -459,7 +459,7 @@ function buildStatement(invRows, payRows){
     }),
     ...(payRows || []).map(r => ({
       src: 'pay', id: r.id, d: r.created_at, voided: false, type: 'pay',
-      title: 'تسديد #' + r.id, note: r.note, by: r.profiles?.name,
+      title: 'إيصال قبض #' + r.id, note: r.note, by: r.profiles?.name,
       debit: 0, credit: Number(r.amount) || 0
     }))
   ].sort(cmpStatement);
@@ -519,7 +519,7 @@ function renderStats(){
   // آخر 8 حركات
   const recent = [
     ...I.map(r => ({ k: r.voided_at ? 'void' : (r.kind === 'disbursement' ? 'out' : 'inv'), d: r.created_at, title: (r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة') + ' #' + r.id, who: r.customers?.name, amt: Number(r.total), by: r.profiles?.name })),
-    ...Y.map(r => ({ k: 'pay', d: r.created_at, title: 'تسديد #' + r.id, who: r.customers?.name, amt: Number(r.amount), by: r.profiles?.name }))
+    ...Y.map(r => ({ k: 'pay', d: r.created_at, title: 'إيصال قبض #' + r.id, who: r.customers?.name, amt: Number(r.amount), by: r.profiles?.name }))
   ].sort((a, b) => new Date(b.d) - new Date(a.d)).slice(0, 8);
   $('#recent-tx').innerHTML = recent.length ? recent.map(r => txCardHTML(r)).join('')
     : '<div class="empty">لا توجد حركات بعد.</div>';
@@ -611,7 +611,10 @@ function renderCustomerDetail(id){
       <div class="t2"><span>${esc(dt(r.d))}</span><span>${esc(r.by || '—')}</span></div>
       ${r.note ? `<div class="note">${esc(r.note)}</div>` : ''}
       <div class="run"><span>الرصيد بعد الحركة</span><b>${fmt(r.balance)}</b></div>
-      ${admin && r.src === 'inv' && !r.voided ? `<div class="actions"><button class="btn del sm" data-void="${r.id}">إلغاء الفاتورة</button></div>` : ''}
+      ${(r.type === 'pay' || r.type === 'out' || (admin && r.src === 'inv' && !r.voided)) ? `<div class="actions">
+        ${r.type === 'pay' || r.type === 'out' ? `<button class="btn alt sm" data-receipt="${r.src}:${r.id}">طباعة الإيصال</button>` : ''}
+        ${admin && r.src === 'inv' && !r.voided ? `<button class="btn del sm" data-void="${r.id}">إلغاء الفاتورة</button>` : ''}
+      </div>` : ''}
     </div>`;
   }).join('')
     : '<div class="empty">لا توجد حركات لهذا العميل.</div>';
@@ -700,6 +703,37 @@ window.addEventListener('afterprint', () => {
 });
 
 
+/* ---- إيصال قبض / إيصال صرف (من بيانات الكشف المحمّل، دون جلب إضافي) ---- */
+function printReceipt(src, id){
+  const cid = String(detailCustomerId);
+  const c = C.find(x => String(x.id) === cid);
+  const r = TX[cid]?.st.rows.find(x => x.src === src && String(x.id) === String(id));
+  if (!c || !r || r.voided) return toast('تعذّر تجهيز الإيصال', false);
+  const isIn = r.src === 'pay';
+  const title = isIn ? 'إيصال قبض' : 'إيصال صرف';
+  const area = $('#print-area');
+  window.__statementPreviousTitle = document.title;
+  document.title = `${c.name} - ${title} ${r.id}`;
+  area.innerHTML = `
+    <div class="print-head"><div class="print-store">${esc(STORE_NAME)}</div><div class="print-title">${title}</div></div>
+    <div class="print-meta">
+      <div>الرقم: <b>${r.id}</b></div>
+      <div>التاريخ: <b>${esc(new Date(r.d).toLocaleString('ar'))}</b></div>
+      <div>العميل: <b>${esc(c.name)}</b></div>
+      <div>البائع: <b>${esc(r.by || '—')}</b></div>
+      <div>الرصيد بعد الحركة: <b>${fmt(r.balance)}</b></div>
+      ${r.note ? `<div style="grid-column:1/-1;white-space:pre-wrap">البيان: ${esc(r.note)}</div>` : ''}
+    </div>
+    <div class="print-total"><div class="t">المبلغ</div><div class="v">${fmt(isIn ? r.credit : r.debit)}</div></div>
+    <p>${isIn ? 'استُلم من العميل المبلغ المذكور أعلاه.' : 'صُرف للعميل المبلغ المذكور أعلاه نقداً، ويُسجَّل ديناً عليه.'}</p>
+    <div class="print-sign"><img class="print-stamp" src="stamp.png" alt="ختم المحل"><span>توقيع العميل</span></div>`;
+  const img = area.querySelector('.print-stamp');
+  let fired = false;
+  const go = () => { if (fired) return; fired = true; requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => window.print(), 30))); };
+  if (img && !img.complete) { img.onload = img.onerror = go; setTimeout(go, 2000); } else go();
+}
+
+
 /* ---- بطاقة حركة مختصرة (للإحصائيات) ---- */
 function txCardHTML(r){
   const amtClass = r.k === 'pay' ? 'style="color:var(--ok)"' : r.k === 'void' ? '' : 'style="color:var(--bad)"';
@@ -719,6 +753,7 @@ document.addEventListener('click', e => {
   const g = a => e.target.closest(`[data-${a}]`)?.dataset[a.replace(/-./g, m => m[1].toUpperCase())];
   let v;
   if ((v = g('print-statement'))) return printStatement(v, e.target.closest('[data-print-statement]'));
+  if ((v = g('receipt'))) { const [s, id] = v.split(':'); return printReceipt(s, id); }
   if ((v = g('pay'))) {
     const c = C.find(x => String(x.id) === String(v));
     const a = prompt(`المبلغ المسدَّد (الدين الحالي ${fmt(c.debt)}):`, c.debt); if (a === null) return;
