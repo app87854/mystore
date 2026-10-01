@@ -1,6 +1,15 @@
 -- depends: 005_edit
--- Database timezone must be Africa/Tripoli; now()::date uses the database session timezone.
 
+-- منطقة التوقيت على مستوى القاعدة (تُطبَّق على الاتصالات الجديدة).
+-- بهذا يصبح البناء من الصفر ذاتياً بلا خطوة يدوية في اللوحة.
+-- غيّر القيمة إن تغيّر موقع المحل.
+do $$ begin
+  execute 'alter database postgres set timezone to ''Africa/Tripoli''';
+exception when others then
+  raise notice 'تعذّر ضبط التوقيت تلقائياً (%): اضبطه من Settings → Database → Timezone', sqlerrm;
+end $$;
+
+-- now()::date يتبع توقيت جلسة القاعدة، فليست هناك منطقة مضمّنة داخل SQL.
 create or replace view public.store_stats with (security_invoker=true) as
 select
   (select count(*) from public.customers) as customers_count,

@@ -37,6 +37,50 @@ end $$;
 revoke execute on function public.void_invoice(bigint,text),public.rename_customer(uuid,text),public.delete_customer(uuid) from public,anon;
 grant execute on function public.void_invoice(bigint,text),public.rename_customer(uuid,text),public.delete_customer(uuid) to authenticated;
 
+-- ===== 4) تحصين دوال الفواتير والتسديد (نفس أجسام القاعدة الحيّة) =====
+-- الإصدار 003/004 كان يفتقد: سقف المبلغ، والتقريب قبل التحقق،
+-- ورسالة حد الائتمان التي تحمل الأرقام (تُعرض للمستخدم حرفياً من القاعدة).
+create or replace function public.create_debt_invoice(p_customer uuid, p_amount numeric, p_note text, p_kind text default 'invoice')
+returns bigint language plpgsql security definer set search_path=public as $$
+declare v_limit numeric; v_debt numeric; v_id bigint; v_amt numeric;
+begin
+  if auth.uid() is null then raise exception 'غير مصرّح'; end if;
+  if p_kind not in ('invoice','disbursement') then raise exception 'نوع غير صحيح'; end if;
+  if p_amount is null or p_amount <= 0 or p_amount >= 10000000 then raise exception 'القيمة غير صحيحة'; end if;
+  v_amt := round(p_amount,2);
+  if v_amt <= 0 then raise exception 'القيمة غير صحيحة'; end if;
+  select credit_limit into v_limit from public.customers where id=p_customer for update;
+  if not found then raise exception 'العميل غير موجود'; end if;
+  select debt into v_debt from public.customer_balances where id=p_customer;
+  if v_limit > 0 and v_debt + v_amt > v_limit then
+    raise exception 'يتجاوز حد الائتمان (الدين الحالي %، الحد %)', v_debt, v_limit;
+  end if;
+  insert into public.invoices(customer_id,total,paid,note,kind)
+  values(p_customer,v_amt,0,nullif(trim(p_note),''),p_kind) returning id into v_id;
+  return v_id;
+end $$;
+
+create or replace function public.add_payment(p_customer uuid, p_amount numeric, p_note text)
+returns bigint language plpgsql security definer set search_path=public as $$
+declare v_debt numeric; v_id bigint; v_amt numeric;
+begin
+  if auth.uid() is null then raise exception 'غير مصرّح'; end if;
+  if p_amount is null or p_amount <= 0 or p_amount >= 10000000 then raise exception 'مبلغ غير صحيح'; end if;
+  v_amt := round(p_amount,2);
+  if v_amt <= 0 then raise exception 'مبلغ غير صحيح'; end if;
+  perform 1 from public.customers where id=p_customer for update;
+  if not found then raise exception 'العميل غير موجود'; end if;
+  select debt into v_debt from public.customer_balances where id=p_customer;
+  if v_amt > v_debt then raise exception 'المبلغ أكبر من الدين الحالي (%)', v_debt; end if;
+  insert into public.payments(customer_id,amount,note) values(p_customer,v_amt,nullif(trim(p_note),'')) returning id into v_id;
+  return v_id;
+end $$;
+
+revoke execute on function public.create_debt_invoice(uuid,numeric,text,text),
+                           public.add_payment(uuid,numeric,text) from public, anon;
+grant  execute on function public.create_debt_invoice(uuid,numeric,text,text),
+                           public.add_payment(uuid,numeric,text) to authenticated;
+
 DO $$ declare r text; begin
   foreach r in array ARRAY['public.create_invoice(uuid,jsonb,numeric)','public.add_product(text,numeric,numeric)','public.receive_stock(uuid,numeric,text)'] loop
     if to_regprocedure(r) is not null then execute 'revoke execute on function '||r||' from authenticated'; end if;

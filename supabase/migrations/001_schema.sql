@@ -43,12 +43,9 @@ create table if not exists public.stock_movements (
   note text, created_by uuid references public.profiles(id) default auth.uid(), created_at timestamptz not null default now()
 );
 
-create or replace view public.customer_balances with (security_invoker = true) as
-select c.id, c.name, c.phone,
-  coalesce((select sum(i.total - i.paid) from public.invoices i where i.customer_id = c.id), 0)
-  - coalesce((select sum(p.amount) from public.payments p where p.customer_id = c.id), 0) as debt
-from public.customers c;
-
+-- ملاحظة: عرض customer_balances يُنشأ في 003 فقط.
+-- تعريفه هنا كان يفشل بـ "cannot drop columns from view" على أي قاعدة قائمة،
+-- لأن 003 يضيف عليه عمود credit_limit لاحقاً.
 create or replace function public.is_admin() returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
