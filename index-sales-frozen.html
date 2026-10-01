@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>منظومة المبيعات</title>
+<style>
+  :root{--ink:#1c2321;--mute:#66736f;--line:#d9dfdc;--bg:#f3f5f2;--main:#0f5c4d;--bad:#b3261e;--ok:#166534}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,'Segoe UI',Tahoma,sans-serif;background:var(--bg);color:var(--ink)}
+  header{background:var(--main);color:#fff;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  header h1{margin:0;font-size:17px}
+  header span{font-size:13px;opacity:.85}
+  .wrap{max-width:920px;margin:0 auto;padding:16px}
+  nav{display:flex;gap:6px;margin-bottom:16px}
+  nav button{flex:1;padding:10px 4px;border:1px solid var(--line);background:#fff;border-radius:8px;font:inherit;cursor:pointer}
+  nav button.on{background:var(--main);color:#fff;border-color:var(--main)}
+  .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+  h2{font-size:16px;margin:0 0 12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
+  label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--mute)}
+  input,select{padding:9px;border:1px solid var(--line);border-radius:8px;font:inherit;width:100%;background:#fff;color:var(--ink)}
+  input:focus,select:focus,button:focus-visible{outline:2px solid var(--main);outline-offset:1px}
+  button{font:inherit;cursor:pointer}
+  .btn{padding:9px 14px;border-radius:8px;border:1px solid var(--main);background:var(--main);color:#fff}
+  .btn.alt{background:#fff;color:var(--main)}
+  .btn.del{background:#fff;color:var(--bad);border-color:var(--bad)}
+  .btn.sm{padding:4px 9px;font-size:13px}
+  .btn:disabled{opacity:.5}
+  .scroll{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{color:var(--mute);font-weight:600;font-size:13px}
+  .empty{color:var(--mute);padding:12px 0}
+  .debt{color:var(--bad);font-weight:700}
+  .sum{display:flex;gap:20px;flex-wrap:wrap;align-items:center;margin:12px 0}
+  .kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+  .kpi div{border:1px solid var(--line);border-radius:10px;padding:10px;font-size:13px;color:var(--mute)}
+  .kpi b{display:block;font-size:19px;color:var(--ink);margin-top:4px}
+  #toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:8px;color:#fff;display:none;z-index:9;max-width:90%}
+  #toast.ok{background:var(--ok);display:block}#toast.err{background:var(--bad);display:block}
+  #login{position:fixed;inset:0;background:var(--main);display:flex;align-items:center;justify-content:center;padding:16px;z-index:5}
+  #login .card{width:min(360px,100%);margin:0}
+  .hidden{display:none!important}
+  #print{display:none}
+  @media print{body>*:not(#print){display:none!important}#print{display:block;padding:12px}#print table{font-size:13px}}
+</style>
+</head>
+<body>
+
+<div id="login"><div class="card">
+  <h2>تسجيل الدخول</h2>
+  <label>اسم المستخدم<input id="username" autocomplete="username"></label>
+  <label style="margin-top:10px">كلمة المرور<input id="pass" type="password" autocomplete="current-password"></label>
+  <button id="btn-login" class="btn" style="width:100%;margin-top:14px">دخول</button>
+</div></div>
+
+<div id="app" class="hidden">
+  <header><h1 id="store"></h1><div><span id="me"></span> <button id="btn-out" class="btn alt sm">خروج</button></div></header>
+  <div class="wrap">
+    <nav>
+      <button data-tab="invoice" class="on">فاتورة</button>
+      <button data-tab="customers">العملاء</button>
+      <button data-tab="products">البضائع</button>
+      <button data-tab="report">التقارير</button>
+      <button data-tab="users" id="users-tab" class="hidden">المستخدمون</button>
+    </nav>
+
+    <section id="tab-invoice">
+      <div class="card">
+        <h2>فاتورة جديدة</h2>
+        <div class="grid">
+          <label>العميل<select id="inv-customer"></select></label>
+          <label>الصنف<select id="inv-product"></select></label>
+          <label>الكمية<input id="inv-qty" type="number" min="0" step="any" value="1"></label>
+          <label>سعر الوحدة<input id="inv-price" type="number" min="0" step="any" value="0"></label>
+          <button id="btn-line" class="btn alt">إضافة</button>
+        </div>
+        <div class="scroll" style="margin-top:12px"><table>
+          <thead><tr><th>الصنف</th><th>الكمية</th><th>السعر</th><th>المجموع</th><th></th></tr></thead>
+          <tbody id="lines"></tbody></table></div>
+        <div class="sum">
+          <div>الإجمالي: <b id="inv-total">0.00</b></div>
+          <label style="flex-direction:row;align-items:center;gap:8px">المدفوع
+            <input id="inv-paid" type="number" min="0" step="any" value="0" style="width:110px"></label>
+          <div>المتبقي: <b id="inv-rest">0.00</b></div>
+        </div>
+        <button id="btn-save" class="btn">حفظ الفاتورة</button>
+        <button id="btn-fullpay" class="btn alt">دفع كامل</button>
+      </div>
+      <div class="card">
+        <h2>آخر الفواتير</h2>
+        <div class="scroll"><table>
+          <thead><tr><th>رقم</th><th>التاريخ</th><th>العميل</th><th>الإجمالي</th><th>المدفوع</th><th>البائع</th><th></th></tr></thead>
+          <tbody id="invoices"></tbody></table></div>
+      </div>
+    </section>
+
+    <section id="tab-customers" class="hidden">
+      <div class="card">
+        <h2>إضافة عميل</h2>
+        <div class="grid">
+          <label>الاسم<input id="c-name"></label>
+          <label>الهاتف<input id="c-phone" type="tel"></label>
+          <button id="btn-add-c" class="btn">إضافة</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>العملاء</h2>
+        <div class="scroll"><table>
+          <thead><tr><th>الاسم</th><th>الهاتف</th><th>الدين</th><th></th></tr></thead>
+          <tbody id="customers"></tbody></table></div>
+      </div>
+      <div class="card hidden" id="stmt">
+        <h2 id="stmt-title"></h2>
+        <div class="scroll" id="stmt-body"></div>
+        <button id="btn-stmt-print" class="btn alt" style="margin-top:10px">طباعة الكشف</button>
+      </div>
+    </section>
+
+    <section id="tab-products" class="hidden">
+      <div class="card" id="product-admin-card">
+        <h2>إضافة صنف</h2>
+        <div class="grid">
+          <label>الاسم<input id="p-name"></label>
+          <label>السعر<input id="p-price" type="number" min="0" step="any" value="0"></label>
+          <label>الكمية الافتتاحية<input id="p-stock" type="number" min="0" step="any" value="0"></label>
+          <button id="btn-add-p" class="btn">إضافة</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>البضائع</h2>
+        <div class="scroll"><table>
+          <thead><tr><th>الصنف</th><th>السعر</th><th>المتوفر</th><th></th></tr></thead>
+          <tbody id="products"></tbody></table></div>
+      </div>
+    </section>
+
+    <section id="tab-report" class="hidden">
+      <div class="card"><h2>ملخص</h2><div class="kpi" id="kpi"></div></div>
+      <div class="card"><h2>أكبر المدينين</h2>
+        <div class="scroll"><table><thead><tr><th>العميل</th><th>الدين</th></tr></thead>
+        <tbody id="top-debt"></tbody></table></div></div>
+    </section>
+
+    <section id="tab-users" class="hidden">
+      <div class="card">
+        <h2 id="user-form-title">إضافة مستخدم</h2>
+        <div class="grid">
+          <label>اسم المستخدم<input id="u-username" autocomplete="off"></label>
+          <label>الاسم الظاهر<input id="u-name"></label>
+          <label>الدور<select id="u-role"><option value="seller">بائع</option><option value="admin">مدير</option></select></label>
+          <label>كلمة المرور<input id="u-password" type="password" autocomplete="new-password" placeholder="6 أحرف على الأقل"></label>
+          <button id="btn-save-user" class="btn">إضافة المستخدم</button>
+          <button id="btn-cancel-user" class="btn alt hidden">إلغاء التعديل</button>
+        </div>
+        <p id="user-form-note" class="empty">كلمة المرور مطلوبة عند الإضافة، واختيارية عند التعديل.</p>
+      </div>
+      <div class="card">
+        <h2>المستخدمون</h2>
+        <div class="scroll"><table>
+          <thead><tr><th>اسم المستخدم</th><th>الاسم</th><th>الدور</th><th></th></tr></thead>
+          <tbody id="users"></tbody>
+        </table></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="print"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+/* ===== بيانات مشروعك (مفتاح anon فقط، لا تضع service_role أبداً) ===== */
+const SUPABASE_URL = 'https://arrebmwpzrlmeulzplkm.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_SFNd6AiGkvWxm6u0KgSpTg_ocFlAUuI';
+const STORE_NAME   = 'منظومة المبيعات';
+/* ====================================================================== */
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const fmt = n => (Number(n) || 0).toFixed(2);
+const dt = d => new Date(d).toLocaleString('ar', { dateStyle:'short', timeStyle:'short' });
+$('#store').textContent = STORE_NAME; document.title = STORE_NAME;
+
+let C = [], P = [], I = [], Y = [], U = [], lines = [], admin = false, channel = null, timer, stmtHtml = '', editingUserId = null;
+
+function toast(msg, ok = true){
+  const t = $('#toast'); t.textContent = msg; t.className = ok ? 'ok' : 'err';
+  clearTimeout(timer); timer = setTimeout(() => t.className = '', 3500);
+}
+function printHtml(html){ $('#print').innerHTML = html; window.print(); }
+
+/* ---- الدخول ---- */
+$('#btn-login').onclick = async () => {
+  const username = $('#username').value.trim(), password = $('#pass').value;
+  if (!username || !password) return toast('أدخل اسم المستخدم وكلمة المرور', false);
+  const { data: login, error: lookupError } = await sb.rpc('login_email', { p_username: username });
+  if (lookupError || !login) return toast('اسم المستخدم غير موجود', false);
+  const { error } = await sb.auth.signInWithPassword({ email: login, password });
+  if (error) toast('تعذّر الدخول: ' + error.message, false);
+};
+$('#btn-out').onclick = () => sb.auth.signOut();
+sb.auth.onAuthStateChange((_e, session) => {
+  $('#login').classList.toggle('hidden', !!session);
+  $('#app').classList.toggle('hidden', !session);
+  if (session) { load(); subscribe(); }
+});
+
+/* ---- التبويبات ---- */
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  ['invoice','customers','products','report','users'].forEach(t => $('#tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
+});
+
+/* ---- التحميل والمزامنة اللحظية ---- */
+async function load(){
+  const { data:{ session } } = await sb.auth.getSession();
+  if (!session) return;
+  const [c, p, i, y, me] = await Promise.all([
+    sb.from('customer_balances').select('*').order('name'),
+    sb.from('products').select('*').order('name'),
+    sb.from('invoices').select('id,total,paid,created_at,customer_id,customers(name),profiles(name)').order('id', { ascending:false }).limit(100),
+    sb.from('payments').select('amount,created_at').order('created_at', { ascending:false }).limit(100),
+    sb.from('profiles').select('name,role,username').eq('id', session.user.id).maybeSingle()
+  ]);
+  const err = c.error || p.error || i.error || y.error || me.error;
+  if (err) return toast('خطأ في التحميل: ' + err.message, false);
+  C = c.data; P = p.data; I = i.data; Y = y.data;
+  admin = me.data?.role === 'admin';
+  $('#product-admin-card').classList.toggle('hidden', !admin);
+  $('#users-tab').classList.toggle('hidden', !admin);
+  $('#me').textContent = (me.data?.name || '') + (admin ? ' (مدير)' : ' (بائع)');
+  if (admin) loadUsers();
+  render();
+}
+function subscribe(){
+  if (channel) return;
+  let t;
+  const again = () => { clearTimeout(t); t = setTimeout(load, 300); };
+  channel = sb.channel('live');
+  ['invoices','products','customers','payments'].forEach(tb =>
+    channel.on('postgres_changes', { event:'*', schema:'public', table:tb }, again));
+  channel.subscribe();
+}
+async function loadUsers(){
+  const { data, error } = await sb.functions.invoke('user-admin', { body: { action: 'list' } });
+  if (error || data?.error) return toast(data?.error || error.message, false);
+  U = data.users || [];
+  $('#users').innerHTML = U.length ? U.map(u => `<tr><td>${esc(u.username)}</td><td>${esc(u.name)}</td>
+    <td>${u.role === 'admin' ? 'مدير' : 'بائع'}</td><td><button class="btn alt sm" data-edit-user="${u.id}">تعديل</button></td></tr>`).join('')
+    : '<tr><td colspan="4" class="empty">لا يوجد مستخدمون.</td></tr>';
+}
+function resetUserForm(){
+  editingUserId = null;
+  $('#user-form-title').textContent = 'إضافة مستخدم';
+  $('#btn-save-user').textContent = 'إضافة المستخدم';
+  $('#btn-cancel-user').classList.add('hidden');
+  $('#u-username').value = ''; $('#u-name').value = ''; $('#u-role').value = 'seller'; $('#u-password').value = '';
+}
+$('#btn-save-user').onclick = async () => {
+  const body = { action: editingUserId ? 'update' : 'create', username: $('#u-username').value.trim(), name: $('#u-name').value.trim(), role: $('#u-role').value, password: $('#u-password').value };
+  if (editingUserId) body.id = editingUserId;
+  const b = $('#btn-save-user'); b.disabled = true;
+  const { data, error } = await sb.functions.invoke('user-admin', { body });
+  b.disabled = false;
+  if (error || data?.error) return toast(data?.error || error.message, false);
+  toast(editingUserId ? 'تم تعديل المستخدم' : 'تمت إضافة المستخدم'); resetUserForm(); loadUsers();
+};
+$('#btn-cancel-user').onclick = resetUserForm;
+
+/* ---- الرسم ---- */
+function render(){
+  const cs = $('#inv-customer'), ck = cs.value;
+  cs.innerHTML = '<option value="">— نقدي / بدون عميل —</option>' + C.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  cs.value = ck;
+  const ps = $('#inv-product'), pk = ps.value;
+  ps.innerHTML = '<option value="">— اختر الصنف —</option>' + P.map(p => `<option value="${p.id}">${esc(p.name)} (متوفر ${p.stock})</option>`).join('');
+  ps.value = pk;
+
+  $('#customers').innerHTML = C.length ? C.map(c => `<tr><td>${esc(c.name)}</td><td>${esc(c.phone || '—')}</td>
+    <td class="${c.debt > 0 ? 'debt' : ''}">${fmt(c.debt)}</td>
+    <td><button class="btn alt sm" data-stmt="${c.id}">كشف</button>
+    ${c.debt > 0 ? `<button class="btn sm" data-pay="${c.id}">تسديد</button>` : ''}
+    ${admin ? `<button class="btn del sm" data-del-c="${c.id}">حذف</button>` : ''}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="empty">لا يوجد عملاء. أضف أول عميل أعلاه.</td></tr>';
+
+  $('#products').innerHTML = P.length ? P.map(p => `<tr><td>${esc(p.name)}</td><td>${fmt(p.price)}</td>
+    <td class="${p.stock <= 0 ? 'debt' : ''}">${p.stock}</td>
+    <td>${admin ? `<button class="btn sm" data-sup="${p.id}">توريد</button>
+    <button class="btn alt sm" data-price="${p.id}">السعر</button>
+    <button class="btn del sm" data-del-p="${p.id}">حذف</button>` : '—'}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="empty">لا توجد بضائع. أضف أول صنف أعلاه.</td></tr>';
+
+  $('#invoices').innerHTML = I.length ? I.map(i => `<tr><td>${i.id}</td><td>${esc(dt(i.created_at))}</td>
+    <td>${esc(i.customers?.name || 'نقدي')}</td><td>${fmt(i.total)}</td><td>${fmt(i.paid)}</td>
+    <td>${esc(i.profiles?.name || '')}</td><td><button class="btn alt sm" data-print="${i.id}">طباعة</button></td></tr>`).join('')
+    : '<tr><td colspan="7" class="empty">لا توجد فواتير بعد.</td></tr>';
+
+  const today = new Date().toDateString(), isToday = d => new Date(d).toDateString() === today;
+  const ti = I.filter(i => isToday(i.created_at));
+  const sales = ti.reduce((s, i) => s + Number(i.total), 0);
+  const collected = ti.reduce((s, i) => s + Number(i.paid), 0) + Y.filter(y => isToday(y.created_at)).reduce((s, y) => s + Number(y.amount), 0);
+  const debtors = C.filter(c => c.debt > 0).sort((a, b) => b.debt - a.debt);
+  $('#kpi').innerHTML = `<div>مبيعات اليوم<b>${fmt(sales)}</b></div><div>المحصَّل اليوم<b>${fmt(collected)}</b></div>
+    <div>فواتير اليوم<b>${ti.length}</b></div>
+    <div>إجمالي الديون<b class="debt">${fmt(debtors.reduce((s, c) => s + Number(c.debt), 0))}</b></div>
+    <div>قيمة المخزون<b>${fmt(P.reduce((s, p) => s + p.stock * p.price, 0))}</b></div>
+    <div>أصناف قاربت على النفاد<b>${P.filter(p => p.stock <= 5).length}</b></div>`;
+  $('#top-debt').innerHTML = debtors.length ? debtors.slice(0, 5).map(c => `<tr><td>${esc(c.name)}</td><td class="debt">${fmt(c.debt)}</td></tr>`).join('')
+    : '<tr><td colspan="2" class="empty">لا توجد ديون.</td></tr>';
+  renderLines();
+}
+
+/* ---- الفاتورة ---- */
+const total = () => lines.reduce((s, l) => s + Math.round(l.qty * l.price * 100) / 100, 0);
+function renderLines(){
+  $('#lines').innerHTML = lines.length ? lines.map((l, k) => `<tr><td>${esc(l.name)}</td><td>${l.qty}</td><td>${fmt(l.price)}</td>
+    <td>${fmt(l.qty * l.price)}</td><td><button class="btn del sm" data-rm="${k}">إزالة</button></td></tr>`).join('')
+    : '<tr><td colspan="5" class="empty">أضف صنفاً لبدء الفاتورة.</td></tr>';
+  updateSum();
+}
+function updateSum(){
+  $('#inv-total').textContent = fmt(total());
+  $('#inv-rest').textContent = fmt(total() - (Number($('#inv-paid').value) || 0));
+}
+$('#inv-paid').oninput = updateSum;
+$('#btn-fullpay').onclick = () => { $('#inv-paid').value = total().toFixed(2); updateSum(); };
+$('#inv-product').onchange = e => { const p = P.find(x => x.id === e.target.value); if (p) $('#inv-price').value = p.price; };
+
+$('#btn-line').onclick = () => {
+  const p = P.find(x => x.id === $('#inv-product').value);
+  const qty = Number($('#inv-qty').value), price = Number($('#inv-price').value);
+  if (!p) return toast('اختر الصنف', false);
+  if (!(qty > 0)) return toast('الكمية غير صحيحة', false);
+  if (!(price >= 0)) return toast('السعر غير صحيح', false);
+  if (lines.filter(l => l.product_id === p.id).reduce((s, l) => s + l.qty, qty) > p.stock) return toast('الكمية أكبر من المتوفر: ' + p.stock, false);
+  lines.push({ product_id: p.id, name: p.name, qty, price });
+  $('#inv-qty').value = 1; renderLines();
+};
+
+$('#btn-save').onclick = async () => {
+  if (!lines.length) return toast('الفاتورة فارغة', false);
+  const b = $('#btn-save'); b.disabled = true;
+  const { data, error } = await sb.rpc('create_invoice', {
+    p_customer: $('#inv-customer').value || null,
+    p_items: lines.map(l => ({ product_id: l.product_id, qty: l.qty, price: l.price })),
+    p_paid: Number($('#inv-paid').value) || 0
+  });
+  b.disabled = false;
+  if (error) return toast(error.message, false);
+  toast('تم حفظ الفاتورة رقم ' + data);
+  lines = []; $('#inv-paid').value = 0; load();
+};
+
+async function printInvoice(id){
+  const inv = I.find(x => x.id == id);
+  const { data, error } = await sb.from('invoice_items').select('*').eq('invoice_id', id).order('id');
+  if (error) return toast(error.message, false);
+  printHtml(`<h2>${esc(STORE_NAME)}</h2><p>فاتورة رقم ${inv.id} — ${esc(dt(inv.created_at))}<br>العميل: ${esc(inv.customers?.name || 'نقدي')}</p>
+    <table><thead><tr><th>الصنف</th><th>الكمية</th><th>السعر</th><th>المجموع</th></tr></thead><tbody>
+    ${data.map(r => `<tr><td>${esc(r.product_name)}</td><td>${r.qty}</td><td>${fmt(r.price)}</td><td>${fmt(r.line_total)}</td></tr>`).join('')}
+    </tbody></table><p><b>الإجمالي: ${fmt(inv.total)}</b> — المدفوع: ${fmt(inv.paid)} — المتبقي: ${fmt(inv.total - inv.paid)}</p>`);
+}
+
+/* ---- كشف حساب عميل ---- */
+async function statement(id){
+  const c = C.find(x => x.id === id);
+  const [a, b] = await Promise.all([
+    sb.from('invoices').select('id,total,paid,created_at').eq('customer_id', id),
+    sb.from('payments').select('amount,note,created_at').eq('customer_id', id)
+  ]);
+  if (a.error || b.error) return toast((a.error || b.error).message, false);
+  const rows = [...a.data.map(r => ({ d:r.created_at, t:'فاتورة #' + r.id, debit:r.total, credit:r.paid })),
+                ...b.data.map(r => ({ d:r.created_at, t:'تسديد' + (r.note ? ' — ' + r.note : ''), debit:0, credit:r.amount }))]
+               .sort((x, y) => x.d < y.d ? -1 : 1);
+  let bal = 0;
+  stmtHtml = `<table><thead><tr><th>التاريخ</th><th>البيان</th><th>عليه</th><th>له</th><th>الرصيد</th></tr></thead><tbody>` +
+    (rows.map(r => { bal += Number(r.debit) - Number(r.credit);
+      return `<tr><td>${esc(dt(r.d))}</td><td>${esc(r.t)}</td><td>${fmt(r.debit)}</td><td>${fmt(r.credit)}</td><td>${fmt(bal)}</td></tr>`; }).join('')
+    || '<tr><td colspan="5" class="empty">لا توجد حركات.</td></tr>') + '</tbody></table>';
+  $('#stmt-title').textContent = 'كشف حساب: ' + c.name;
+  $('#stmt-body').innerHTML = stmtHtml;
+  $('#stmt').classList.remove('hidden'); $('#stmt').scrollIntoView();
+  $('#btn-stmt-print').onclick = () => printHtml(`<h2>${esc(STORE_NAME)}</h2><h3>كشف حساب: ${esc(c.name)}</h3>${stmtHtml}`);
+}
+
+/* ---- الإضافة ---- */
+$('#btn-add-c').onclick = async () => {
+  const name = $('#c-name').value.trim();
+  if (!name) return toast('أدخل اسم العميل', false);
+  const { error } = await sb.from('customers').insert({ name, phone: $('#c-phone').value.trim() || null });
+  if (error) return toast(error.message, false);
+  $('#c-name').value = ''; $('#c-phone').value = ''; toast('تمت إضافة العميل'); load();
+};
+$('#btn-add-p').onclick = async () => {
+  const name = $('#p-name').value.trim();
+  if (!name) return toast('أدخل اسم الصنف', false);
+  const { error } = await sb.rpc('add_product', { p_name: name, p_price: Number($('#p-price').value) || 0, p_stock: Number($('#p-stock').value) || 0 });
+  if (error) return toast(error.message, false);
+  $('#p-name').value = ''; $('#p-price').value = 0; $('#p-stock').value = 0; toast('تمت إضافة الصنف'); load();
+};
+
+/* ---- أزرار الجداول ---- */
+async function run(p, okMsg){ const { error } = await p; error ? toast(error.message, false) : (toast(okMsg), load()); }
+document.addEventListener('click', e => {
+  const g = a => e.target.closest(`[data-${a}]`)?.dataset[a.replace(/-./g, m => m[1].toUpperCase())];
+  let v;
+  if ((v = g('edit-user'))) {
+    const u = U.find(x => x.id === v); if (!u) return;
+    editingUserId = u.id; $('#user-form-title').textContent = 'تعديل مستخدم'; $('#btn-save-user').textContent = 'حفظ التعديل';
+    $('#btn-cancel-user').classList.remove('hidden'); $('#u-username').value = u.username; $('#u-name').value = u.name;
+    $('#u-role').value = u.role; $('#u-password').value = ''; $('#tab-users').scrollIntoView(); return;
+  }
+  if ((v = g('rm')) !== undefined) { lines.splice(Number(v), 1); return renderLines(); }
+  if ((v = g('print'))) return printInvoice(v);
+  if ((v = g('stmt'))) return statement(v);
+  if ((v = g('pay'))) {
+    const a = prompt('المبلغ المسدَّد:'); if (a === null) return;
+    return run(sb.rpc('add_payment', { p_customer: v, p_amount: Number(a), p_note: null }), 'تم تسجيل التسديد');
+  }
+  if ((v = g('sup'))) {
+    const q = prompt('الكمية الموردة:'); if (q === null) return;
+    return run(sb.rpc('receive_stock', { p_product: v, p_qty: Number(q), p_note: null }), 'تم التوريد');
+  }
+  if ((v = g('price'))) {
+    const p = P.find(x => x.id === v), n = prompt('السعر الجديد:', p.price); if (n === null) return;
+    if (!(Number(n) >= 0)) return toast('سعر غير صحيح', false);
+    return run(sb.from('products').update({ price: Number(n) }).eq('id', v), 'تم تعديل السعر');
+  }
+  if ((v = g('del-c'))) { if (confirm('حذف العميل؟')) run(sb.from('customers').delete().eq('id', v), 'تم الحذف'); return; }
+  if ((v = g('del-p'))) { if (confirm('حذف الصنف؟')) run(sb.from('products').delete().eq('id', v), 'تم الحذف'); return; }
+});
+</script>
+</body>
+</html>
