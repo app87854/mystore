@@ -45,6 +45,8 @@
   #login .card{width:min(360px,100%);margin:0}
   .inv.pay{border-color:#bfe3d0;background:#f4fbf7}
   .inv.pay .top span:last-child{color:var(--ok)}
+  .inv.out{border-color:#e9c27a;background:#fffaf0}
+  .inv.out .top span:last-child{color:#9a6700}
   .wrapcell{white-space:pre-wrap;min-width:160px}
   .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px}
   .hidden{display:none!important}
@@ -72,6 +74,7 @@
       <div class="card">
         <h2>فاتورة جديدة</h2>
         <div class="grid">
+          <label>النوع<select id="inv-kind"><option value="invoice">فاتورة دين</option><option value="disbursement">إيصال صرف نقدي</option></select></label>
           <label>العميل<select id="inv-customer"></select></label>
           <label>القيمة<input id="inv-amount" type="number" min="0" step="any" inputmode="decimal"></label>
         </div>
@@ -83,7 +86,7 @@
         <h2>الحركات</h2>
         <div class="filters">
           <label>العميل<select id="f-customer"></select></label>
-          <label>النوع<select id="f-type"><option value="">فواتير وتسديدات</option><option value="invoice">فواتير فقط</option><option value="payment">تسديدات فقط</option></select></label>
+          <label>النوع<select id="f-type"><option value="">كل الحركات</option><option value="invoice">فواتير فقط</option><option value="disbursement">إيصالات صرف فقط</option><option value="payment">تسديدات فقط</option></select></label>
         </div>
         <div class="hint">يعرض آخر 100 فاتورة و100 تسديد. كشف الحساب في تبويب العملاء يعرض كل حركات العميل.</div>
         <div id="invoices"></div>
@@ -193,7 +196,7 @@ async function loadNow(){
   if (!session) return;
   const [c, i, y, me] = await Promise.all([
     sb.from('customer_balances').select('*').order('name'),
-    sb.from('invoices').select('id,total,note,created_at,customer_id,customers(name),profiles(name)').order('id', { ascending:false }).limit(100),
+    sb.from('invoices').select('id,total,note,kind,created_at,customer_id,customers(name),profiles(name)').order('id', { ascending:false }).limit(100),
     sb.from('payments').select('id,amount,note,created_at,customer_id,customers(name),profiles(name)').order('id', { ascending:false }).limit(100),
     sb.from('profiles').select('name,role').eq('id', session.user.id).maybeSingle()
   ]);
@@ -246,12 +249,12 @@ $('#inv-customer').onchange = hint;
 function renderFeed(){
   const fc = $('#f-customer').value, ft = $('#f-type').value;
   const rows = [
-    ...(ft === 'payment' ? [] : I.map(r => ({ k:'inv', id:r.id, d:r.created_at, cid:r.customer_id, who:r.customers?.name, amt:r.total, note:r.note, by:r.profiles?.name }))),
-    ...(ft === 'invoice' ? [] : Y.map(r => ({ k:'pay', id:r.id, d:r.created_at, cid:r.customer_id, who:r.customers?.name, amt:r.amount, note:r.note, by:r.profiles?.name })))
+    ...(['payment','disbursement'].includes(ft) ? [] : I.filter(r => !ft || r.kind === ft).map(r => ({ k:r.kind === 'disbursement' ? 'out' : 'inv', id:r.id, d:r.created_at, cid:r.customer_id, who:r.customers?.name, amt:r.total, note:r.note, by:r.profiles?.name }))),
+    ...(ft === 'invoice' || ft === 'disbursement' ? [] : Y.map(r => ({ k:'pay', id:r.id, d:r.created_at, cid:r.customer_id, who:r.customers?.name, amt:r.amount, note:r.note, by:r.profiles?.name })))
   ].filter(r => !fc || r.cid === fc).sort((a, b) => new Date(b.d) - new Date(a.d));
-  $('#invoices').innerHTML = rows.length ? rows.map(r => `<article class="inv ${r.k === 'pay' ? 'pay' : ''}">
-    <div class="top"><span>${esc(r.who || '—')}</span><span>${r.k === 'pay' ? 'تسديد ' : ''}${fmt(r.amt)}</span></div>
-    <div class="meta">${r.k === 'pay' ? 'تسديد' : 'فاتورة'} #${r.id} — ${esc(dt(r.d))}</div>
+  $('#invoices').innerHTML = rows.length ? rows.map(r => `<article class="inv ${r.k === 'pay' ? 'pay' : r.k === 'out' ? 'out' : ''}">
+    <div class="top"><span>${esc(r.who || '—')}</span><span>${r.k === 'pay' ? 'تسديد ' : r.k === 'out' ? 'صرف ' : ''}${fmt(r.amt)}</span></div>
+    <div class="meta">${r.k === 'pay' ? 'تسديد' : r.k === 'out' ? 'إيصال صرف' : 'فاتورة'} #${r.id} — ${esc(dt(r.d))}</div>
     ${r.note ? `<div class="note">${esc(r.note)}</div>` : ''}
     <div class="by">البائع: ${esc(r.by || '—')}</div></article>`).join('')
     : '<div class="empty">لا توجد حركات مطابقة.</div>';
@@ -264,10 +267,11 @@ $('#btn-save').onclick = async () => {
   if (!customer) return toast('اختر العميل', false);
   if (!(amount > 0)) return toast('أدخل قيمة صحيحة', false);
   const b = $('#btn-save'); b.disabled = true;
-  const { data, error } = await sb.rpc('create_debt_invoice', { p_customer: customer, p_amount: amount, p_note: $('#inv-note').value });
+  const kind = $('#inv-kind').value;
+  const { data, error } = await sb.rpc('create_debt_invoice', { p_customer: customer, p_amount: amount, p_note: $('#inv-note').value, p_kind: kind });
   b.disabled = false;
   if (error) return toast(error.message, false);
-  toast('تم حفظ الفاتورة رقم ' + data);
+  toast((kind === 'disbursement' ? 'تم حفظ إيصال الصرف رقم ' : 'تم حفظ الفاتورة رقم ') + data);
   $('#inv-amount').value = ''; $('#inv-note').value = ''; load();
 };
 
@@ -282,11 +286,11 @@ $('#btn-add-c').onclick = async () => {
 async function statement(id){
   const c = C.find(x => x.id === id);
   const [a, b] = await Promise.all([
-    sb.from('invoices').select('id,total,paid,note,created_at,profiles(name)').eq('customer_id', id),
+    sb.from('invoices').select('id,total,paid,note,kind,created_at,profiles(name)').eq('customer_id', id),
     sb.from('payments').select('id,amount,note,created_at,profiles(name)').eq('customer_id', id)
   ]);
   if (a.error || b.error) return toast((a.error || b.error).message, false);
-  const rows = [...a.data.map(r => ({ d:r.created_at, t:'فاتورة #' + r.id, note:r.note, by:r.profiles?.name, debit:r.total, credit:r.paid })),
+  const rows = [...a.data.map(r => ({ d:r.created_at, t:(r.kind === 'disbursement' ? 'إيصال صرف #' : 'فاتورة #') + r.id, note:r.note, by:r.profiles?.name, debit:r.total, credit:r.paid })),
                 ...b.data.map(r => ({ d:r.created_at, t:'تسديد #' + r.id, note:r.note, by:r.profiles?.name, debit:0, credit:r.amount }))]
                .sort((x, y) => new Date(x.d) - new Date(y.d));
   let bal = 0;
