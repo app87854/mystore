@@ -341,7 +341,16 @@ function goTo(name){
   if (name === 'users') loadUsers();
 }
 document.querySelectorAll('#bottom-nav button').forEach(b => b.onclick = () => goTo(b.dataset.screen));
-$('#btn-back').onclick = () => { detailCustomerId = null; goTo('customers'); render(); };
+/* الخروج من ملف العميل: يستهلك مدخل السجل الذي أضافه openCustomer، فيعمل زر الرجوع في الهاتف كزر الشاشة */
+function leaveCustomer(){
+  detailCustomerId = null;
+  if (history.state && history.state.screen === 'customer') history.back();
+  else { goTo('customers'); render(); }
+}
+window.addEventListener('popstate', () => {
+  if (screen === 'customer') { detailCustomerId = null; goTo('customers'); render(); }
+});
+$('#btn-back').onclick = leaveCustomer;
 
 
 /* ============ الدخول ============ */
@@ -487,6 +496,7 @@ async function loadTx(id){
   if (String(detailCustomerId) === String(id)) renderCustomerDetail(id);
 }
 function openCustomer(id){
+  history.pushState({ screen: 'customer' }, '');
   detailCustomerId = id;
   renderCustomerDetail(id);
   goTo('customer');
@@ -577,7 +587,7 @@ function renderCustomersList(){
 /* ---- ملف العميل ---- */
 function renderCustomerDetail(id){
   const c = C.find(x => String(x.id) === String(id));
-  if (!c) { detailCustomerId = null; goTo('customers'); return; }
+  if (!c) { leaveCustomer(); return; }
   const debt = Number(c.debt);
   const lim = Number(c.credit_limit);
 
@@ -776,7 +786,7 @@ document.addEventListener('click', e => {
   if ((v = g('del'))) {
     const c = C.find(x => String(x.id) === String(v));
     if (!confirm(`حذف العميل «${c.name}» نهائياً؟\nلا يُحذف إلا عميل بلا أي حركات.`)) return;
-    return run(sb.rpc('delete_customer', { p_id: v }), 'تم حذف العميل', () => { detailCustomerId = null; goTo('customers'); });
+    return run(sb.rpc('delete_customer', { p_id: v }), 'تم حذف العميل', leaveCustomer);
   }
   if ((v = g('void'))) {
     const why = prompt(`إلغاء الفاتورة #${v}\nسبب الإلغاء (اختياري):`); if (why === null) return;
