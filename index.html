@@ -160,6 +160,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt
 const fmt = n => (Number(n) || 0).toFixed(2);
 const num = s => Number(String(s).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/٫/g, '.').replace(/[٬,\s]/g, ''));
 const dt = d => new Date(d).toLocaleString('ar', { dateStyle:'short', timeStyle:'short' });
+const clientNameCollator = new Intl.Collator('ar', { numeric: true, sensitivity: 'base' });
 $('#store').textContent = STORE_NAME; document.title = STORE_NAME;
 
 let C = [], I = [], Y = [], U = [], admin = false, channel = null, editingUserId = null, timer, loading = false, dirty = false, state = {};
@@ -219,7 +220,8 @@ async function loadNow(){
   ]);
   const err = c.error || i.error || y.error || me.error || s.error;
   if (err) return toast('خطأ في التحميل: ' + err.message, false);
-  C = c.data; I = i.data; Y = y.data; state = s.data || {};
+  C = [...(c.data || [])].sort((a, b) => clientNameCollator.compare(a.name || '', b.name || ''));
+  I = i.data; Y = y.data; state = s.data || {};
   admin = me.data?.role === 'admin';
   $('#users-tab').classList.toggle('hidden', !admin);
   $('#credit-limit-field').classList.toggle('hidden', !admin);
