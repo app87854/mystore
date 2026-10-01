@@ -47,6 +47,11 @@
   .inv.pay .top span:last-child{color:var(--ok)}
   .inv.out{border-color:#e9c27a;background:#fffaf0}
   .inv.out .top span:last-child{color:#9a6700}
+  .kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px}
+  .kpi>div{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:13px;color:var(--mute)}
+  .kpi b{display:block;font-size:20px;color:var(--ink);margin-top:4px}
+  .kpi b.debt{color:var(--bad)}
+  .kpi b.ok{color:var(--ok)}
   .wrapcell{white-space:pre-wrap;min-width:160px}
   .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px}
   .hidden{display:none!important}
@@ -71,6 +76,7 @@
     </nav>
 
     <section id="tab-invoice">
+      <div class="kpi" id="kpi"></div>
       <div class="card">
         <h2>فاتورة جديدة</h2>
         <div class="grid">
@@ -87,6 +93,8 @@
         <div class="filters">
           <label>العميل<select id="f-customer"></select></label>
           <label>النوع<select id="f-type"><option value="">كل الحركات</option><option value="invoice">فواتير فقط</option><option value="disbursement">إيصالات صرف فقط</option><option value="payment">تسديدات فقط</option></select></label>
+          <label>الفترة<select id="f-days"><option value="0">الكل</option><option value="1">اليوم</option><option value="7">آخر 7 أيام</option><option value="30">آخر 30 يوم</option><option value="90">آخر 90 يوم</option></select></label>
+          <label>تاريخ محدد<input id="f-date" type="date"></label>
         </div>
         <div class="hint">يعرض آخر 100 فاتورة و100 تسديد. كشف الحساب في تبويب العملاء يعرض كل حركات العميل.</div>
         <div id="invoices"></div>
@@ -152,7 +160,7 @@ const fmt = n => (Number(n) || 0).toFixed(2);
 const dt = d => new Date(d).toLocaleString('ar', { dateStyle:'short', timeStyle:'short' });
 $('#store').textContent = STORE_NAME; document.title = STORE_NAME;
 
-let C = [], I = [], Y = [], U = [], admin = false, channel = null, editingUserId = null, timer, loading = false, dirty = false;
+let C = [], I = [], Y = [], U = [], admin = false, channel = null, editingUserId = null, timer, loading = false, dirty = false, state = {};
 
 function toast(msg, ok = true){
   const t = $('#toast'); t.textContent = msg; t.className = ok ? 'ok' : 'err';
@@ -194,15 +202,16 @@ async function load(){
 async function loadNow(){
   const { data:{ session } } = await sb.auth.getSession();
   if (!session) return;
-  const [c, i, y, me] = await Promise.all([
+  const [c, i, y, me, s] = await Promise.all([
     sb.from('customer_balances').select('*').order('name'),
     sb.from('invoices').select('id,total,note,kind,created_at,customer_id,customers(name),profiles(name)').order('id', { ascending:false }).limit(100),
     sb.from('payments').select('id,amount,note,created_at,customer_id,customers(name),profiles(name)').order('id', { ascending:false }).limit(100),
-    sb.from('profiles').select('name,role').eq('id', session.user.id).maybeSingle()
+    sb.from('profiles').select('name,role').eq('id', session.user.id).maybeSingle(),
+    sb.from('store_stats').select('*').single()
   ]);
-  const err = c.error || i.error || y.error || me.error;
+  const err = c.error || i.error || y.error || me.error || s.error;
   if (err) return toast('خطأ في التحميل: ' + err.message, false);
-  C = c.data; I = i.data; Y = y.data;
+  C = c.data; I = i.data; Y = y.data; state = s.data || {};
   admin = me.data?.role === 'admin';
   $('#users-tab').classList.toggle('hidden', !admin);
   $('#credit-limit-field').classList.toggle('hidden', !admin);
@@ -219,6 +228,15 @@ function subscribe(){
 
 /* ---- الرسم ---- */
 function render(){
+  $('#kpi').innerHTML = `
+    <div>إجمالي الديون<b class="debt">${fmt(state.total_debt)}</b></div>
+    <div>عدد العملاء<b>${state.customers_count || 0}</b></div>
+    <div>إجمالي الفواتير<b>${fmt(state.total_invoiced)}</b></div>
+    <div>إجمالي التسديدات<b class="ok">${fmt(state.total_paid)}</b></div>
+    <div>صافي حركة اليوم<b class="debt">${fmt(state.today_debt)}</b></div>
+    <div>تسديدات اليوم<b class="ok">${fmt(state.today_paid)}</b></div>
+    <div>إجمالي المصروف<b>${fmt(state.total_disbursed)}</b></div>
+  `;
   const sel = $('#inv-customer'), keep = sel.value;
   sel.innerHTML = '<option value="">— اختر العميل —</option>' + C.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
   sel.value = keep; hint();
@@ -248,18 +266,29 @@ $('#inv-customer').onchange = hint;
 
 function renderFeed(){
   const fc = $('#f-customer').value, ft = $('#f-type').value;
+  const days = Number($('#f-days').value) || 0, specificDate = $('#f-date').value;
+  let fromDate = null;
+  if (specificDate) {
+    fromDate = new Date(specificDate + 'T00:00:00');
+    fromDate.setHours(0, 0, 0, 0);
+  } else if (days > 0) {
+    fromDate = new Date(); fromDate.setHours(0, 0, 0, 0); fromDate.setDate(fromDate.getDate() - (days - 1));
+  }
+  const inRange = d => !fromDate || new Date(d) >= fromDate;
   const rows = [
     ...(['payment','disbursement'].includes(ft) ? [] : I.filter(r => !ft || r.kind === ft).map(r => ({ k:r.kind === 'disbursement' ? 'out' : 'inv', id:r.id, d:r.created_at, cid:r.customer_id, who:r.customers?.name, amt:r.total, note:r.note, by:r.profiles?.name }))),
     ...(ft === 'invoice' || ft === 'disbursement' ? [] : Y.map(r => ({ k:'pay', id:r.id, d:r.created_at, cid:r.customer_id, who:r.customers?.name, amt:r.amount, note:r.note, by:r.profiles?.name })))
-  ].filter(r => !fc || r.cid === fc).sort((a, b) => new Date(b.d) - new Date(a.d));
-  $('#invoices').innerHTML = rows.length ? rows.map(r => `<article class="inv ${r.k === 'pay' ? 'pay' : r.k === 'out' ? 'out' : ''}">
+  ].filter(r => (!fc || r.cid === fc) && inRange(r.d)).sort((a, b) => new Date(b.d) - new Date(a.d));
+  const summary = `<div class="hint">عدد الحركات المعروضة: ${rows.length} — ${fromDate ? 'من ' + fromDate.toLocaleDateString('ar') : 'بلا حد زمني'}</div>`;
+  $('#invoices').innerHTML = summary + (rows.length ? rows.map(r => `<article class="inv ${r.k === 'pay' ? 'pay' : r.k === 'out' ? 'out' : ''}">
     <div class="top"><span>${esc(r.who || '—')}</span><span>${r.k === 'pay' ? 'تسديد ' : r.k === 'out' ? 'صرف ' : ''}${fmt(r.amt)}</span></div>
     <div class="meta">${r.k === 'pay' ? 'تسديد' : r.k === 'out' ? 'إيصال صرف' : 'فاتورة'} #${r.id} — ${esc(dt(r.d))}</div>
     ${r.note ? `<div class="note">${esc(r.note)}</div>` : ''}
     <div class="by">البائع: ${esc(r.by || '—')}</div></article>`).join('')
-    : '<div class="empty">لا توجد حركات مطابقة.</div>';
+    : '<div class="empty">لا توجد حركات مطابقة.</div>');
 }
-$('#f-customer').onchange = $('#f-type').onchange = renderFeed;
+['#f-customer', '#f-type', '#f-days'].forEach(s => $(s).onchange = renderFeed);
+$('#f-date').onchange = () => { if ($('#f-date').value) $('#f-days').value = '0'; renderFeed(); };
 
 /* ---- العمليات ---- */
 $('#btn-save').onclick = async () => {

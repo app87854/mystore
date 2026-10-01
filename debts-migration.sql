@@ -51,3 +51,17 @@ with check (credit_limit = 0 or is_admin());
 
 drop policy if exists "edit" on customers;
 create policy "edit" on customers for update to authenticated using (is_admin()) with check (is_admin());
+
+-- إحصائيات المنظومة: إجمالي الدين مأخوذ من أرصدة العملاء بعد خصم التسديدات
+create or replace view store_stats with (security_invoker = true) as
+select
+  (select count(*) from customers) as customers_count,
+  (select coalesce(sum(greatest(debt, 0)), 0) from customer_balances) as total_debt,
+  (select coalesce(sum(total), 0) from invoices where kind = 'invoice') as total_invoiced,
+  (select coalesce(sum(total), 0) from invoices where kind = 'disbursement') as total_disbursed,
+  (select coalesce(sum(amount), 0) from payments) as total_paid,
+  ((select coalesce(sum(total), 0) from invoices where created_at >= current_date)
+   - (select coalesce(sum(amount), 0) from payments where created_at >= current_date)) as today_debt,
+  (select coalesce(sum(amount), 0) from payments where created_at >= current_date) as today_paid;
+
+grant select on store_stats to authenticated;
