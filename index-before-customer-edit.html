@@ -55,7 +55,6 @@
   .wrapcell{white-space:pre-wrap;min-width:160px}
   .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px}
   .hidden{display:none!important}
-  .inv.void{opacity:.6;background:#f6f6f6}.inv.void .top span:last-child{text-decoration:line-through}
 </style>
 </head>
 <body>
@@ -97,7 +96,7 @@
           <label>الفترة<select id="f-days"><option value="0">الكل</option><option value="1">اليوم</option><option value="7">آخر 7 أيام</option><option value="30">آخر 30 يوم</option><option value="90">آخر 90 يوم</option></select></label>
           <label>تاريخ محدد<input id="f-date" type="date"></label>
         </div>
-        <div class="hint">يعرض حتى 200 فاتورة و200 تسديد ضمن الفلاتر المختارة. كشف الحساب في تبويب العملاء يعرض كل حركات العميل.</div>
+        <div class="hint">يعرض آخر 100 فاتورة و100 تسديد. كشف الحساب في تبويب العملاء يعرض كل حركات العميل.</div>
         <div id="invoices"></div>
       </div>
     </section>
@@ -158,7 +157,6 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const fmt = n => (Number(n) || 0).toFixed(2);
-const num = s => Number(String(s).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/٫/g, '.').replace(/[٬,\s]/g, ''));
 const dt = d => new Date(d).toLocaleString('ar', { dateStyle:'short', timeStyle:'short' });
 $('#store').textContent = STORE_NAME; document.title = STORE_NAME;
 
@@ -174,11 +172,10 @@ $('#btn-login').onclick = async () => {
   const username = $('#username').value.trim(), password = $('#pass').value;
   if (!username || !password) return toast('أدخل اسم المستخدم وكلمة المرور', false);
   const { data: email, error: lookupError } = await sb.rpc('login_email', { p_username: username });
-  if (lookupError || !email) return toast('اسم المستخدم أو كلمة المرور غير صحيحة', false);
+  if (lookupError || !email) return toast('اسم المستخدم غير موجود', false);
   const { error } = await sb.auth.signInWithPassword({ email, password });
-  if (error) toast('اسم المستخدم أو كلمة المرور غير صحيحة', false);
+  if (error) toast('تعذّر الدخول: ' + error.message, false);
 };
-['#username', '#pass'].forEach(s => $(s).onkeydown = e => { if (e.key === 'Enter') $('#btn-login').click(); });
 $('#btn-out').onclick = async () => {
   if (channel) { await sb.removeChannel(channel); channel = null; }
   await sb.auth.signOut();
@@ -187,12 +184,6 @@ sb.auth.onAuthStateChange((_e, session) => {
   $('#login').classList.toggle('hidden', !!session);
   $('#app').classList.toggle('hidden', !session);
   if (session) { load(); subscribe(); }
-  else {
-    C = []; I = []; Y = []; U = []; state = {}; admin = false;
-    ['#kpi', '#invoices', '#customers', '#users', '#stmt-body'].forEach(s => $(s).innerHTML = '');
-    $('#stmt').classList.add('hidden');
-    if (channel) { sb.removeChannel(channel); channel = null; }
-  }
 });
 
 /* ---- التبويبات ---- */
@@ -213,7 +204,8 @@ async function loadNow(){
   if (!session) return;
   const [c, i, y, me, s] = await Promise.all([
     sb.from('customer_balances').select('*').order('name'),
-    ...feedQueries(),
+    sb.from('invoices').select('id,total,note,kind,created_at,customer_id,customers(name),profiles(name)').order('id', { ascending:false }).limit(100),
+    sb.from('payments').select('id,amount,note,created_at,customer_id,customers(name),profiles(name)').order('id', { ascending:false }).limit(100),
     sb.from('profiles').select('name,role').eq('id', session.user.id).maybeSingle(),
     sb.from('store_stats').select('*').single()
   ]);
@@ -260,7 +252,7 @@ function render(){
     <td>${c.credit_limit > 0 ? fmt(c.credit_limit) : 'بلا حد'}</td>
     <td><button class="btn alt sm" data-stmt="${c.id}">كشف</button>
     ${c.debt > 0 ? `<button class="btn sm" data-pay="${c.id}">تسديد</button>` : ''}
-    ${admin ? `<button class="btn alt sm" data-limit="${c.id}">الحد</button> <button class="btn alt sm" data-rename="${c.id}">تعديل الاسم</button> <button class="btn alt sm" data-del="${c.id}">حذف</button>` : ''}</td></tr>`).join('')
+    ${admin ? `<button class="btn alt sm" data-limit="${c.id}">الحد</button>` : ''}</td></tr>`).join('')
     : '<tr><td colspan="4" class="empty">لا يوجد عملاء. أضف أول عميل أعلاه.</td></tr>';
 }
 
@@ -272,39 +264,31 @@ function hint(){
 }
 $('#inv-customer').onchange = hint;
 
-function feedRange(){
-  const days = Number($('#f-days').value) || 0, sd = $('#f-date').value;
-  let from = null, to = null;
-  if (sd) { from = new Date(sd + 'T00:00:00'); to = new Date(from); to.setDate(to.getDate() + 1); }
-  else if (days > 0) { from = new Date(); from.setHours(0, 0, 0, 0); from.setDate(from.getDate() - (days - 1)); }
-  return { from, to };
-}
-function feedQueries(){
-  const fc = $('#f-customer').value, { from, to } = feedRange();
-  let qi = sb.from('invoices').select('id,total,note,kind,created_at,voided_at,void_reason,customer_id,customers(name),profiles(name)').order('id', { ascending:false }).limit(200);
-  let qp = sb.from('payments').select('id,amount,note,created_at,customer_id,customers(name),profiles(name)').order('id', { ascending:false }).limit(200);
-  for (const f of [q => fc ? q.eq('customer_id', fc) : q, q => from ? q.gte('created_at', from.toISOString()) : q, q => to ? q.lt('created_at', to.toISOString()) : q]) { qi = f(qi); qp = f(qp); }
-  return [qi, qp];
-}
 function renderFeed(){
   const fc = $('#f-customer').value, ft = $('#f-type').value;
-  const { from: fromDate, to: toDate } = feedRange();
-  const inRange = d => (!fromDate || new Date(d) >= fromDate) && (!toDate || new Date(d) < toDate);
+  const days = Number($('#f-days').value) || 0, specificDate = $('#f-date').value;
+  let fromDate = null;
+  if (specificDate) {
+    fromDate = new Date(specificDate + 'T00:00:00');
+    fromDate.setHours(0, 0, 0, 0);
+  } else if (days > 0) {
+    fromDate = new Date(); fromDate.setHours(0, 0, 0, 0); fromDate.setDate(fromDate.getDate() - (days - 1));
+  }
+  const inRange = d => !fromDate || new Date(d) >= fromDate;
   const rows = [
-    ...(ft === 'payment' ? [] : I.filter(r => !ft || r.kind === ft).map(r => ({ k:r.kind === 'disbursement' ? 'out' : 'inv', id:r.id, d:r.created_at, cid:r.customer_id, who:r.customers?.name, amt:r.total, note:r.note, by:r.profiles?.name, voided:r.voided_at, why:r.void_reason }))),
+    ...(['payment','disbursement'].includes(ft) ? [] : I.filter(r => !ft || r.kind === ft).map(r => ({ k:r.kind === 'disbursement' ? 'out' : 'inv', id:r.id, d:r.created_at, cid:r.customer_id, who:r.customers?.name, amt:r.total, note:r.note, by:r.profiles?.name }))),
     ...(ft === 'invoice' || ft === 'disbursement' ? [] : Y.map(r => ({ k:'pay', id:r.id, d:r.created_at, cid:r.customer_id, who:r.customers?.name, amt:r.amount, note:r.note, by:r.profiles?.name })))
   ].filter(r => (!fc || r.cid === fc) && inRange(r.d)).sort((a, b) => new Date(b.d) - new Date(a.d));
   const summary = `<div class="hint">عدد الحركات المعروضة: ${rows.length} — ${fromDate ? 'من ' + fromDate.toLocaleDateString('ar') : 'بلا حد زمني'}</div>`;
-  $('#invoices').innerHTML = summary + (rows.length ? rows.map(r => `<article class="inv ${r.voided ? 'void' : r.k === 'pay' ? 'pay' : r.k === 'out' ? 'out' : ''}">
+  $('#invoices').innerHTML = summary + (rows.length ? rows.map(r => `<article class="inv ${r.k === 'pay' ? 'pay' : r.k === 'out' ? 'out' : ''}">
     <div class="top"><span>${esc(r.who || '—')}</span><span>${r.k === 'pay' ? 'تسديد ' : r.k === 'out' ? 'صرف ' : ''}${fmt(r.amt)}</span></div>
     <div class="meta">${r.k === 'pay' ? 'تسديد' : r.k === 'out' ? 'إيصال صرف' : 'فاتورة'} #${r.id} — ${esc(dt(r.d))}</div>
     ${r.note ? `<div class="note">${esc(r.note)}</div>` : ''}
-    <div class="by">البائع: ${esc(r.by || '—')}${r.voided ? ` — ملغاة ${esc(dt(r.voided))}${r.why ? ': ' + esc(r.why) : ''}` : admin && r.k !== 'pay' ? ` <button class="btn alt sm" data-void="${r.id}">إلغاء الفاتورة</button>` : ''}</div></article>`).join('')
+    <div class="by">البائع: ${esc(r.by || '—')}</div></article>`).join('')
     : '<div class="empty">لا توجد حركات مطابقة.</div>');
 }
-$('#f-type').onchange = renderFeed;
-['#f-customer', '#f-days'].forEach(s => $(s).onchange = () => { if (s === '#f-days' && $('#f-days').value !== '0') $('#f-date').value = ''; load(); });
-$('#f-date').onchange = () => { if ($('#f-date').value) $('#f-days').value = '0'; load(); };
+['#f-customer', '#f-type', '#f-days'].forEach(s => $(s).onchange = renderFeed);
+$('#f-date').onchange = () => { if ($('#f-date').value) $('#f-days').value = '0'; renderFeed(); };
 
 /* ---- العمليات ---- */
 $('#btn-save').onclick = async () => {
@@ -331,11 +315,11 @@ $('#btn-add-c').onclick = async () => {
 async function statement(id){
   const c = C.find(x => x.id === id);
   const [a, b] = await Promise.all([
-    sb.from('invoices').select('id,total,paid,note,kind,created_at,voided_at,void_reason,profiles(name)').eq('customer_id', id),
+    sb.from('invoices').select('id,total,paid,note,kind,created_at,profiles(name)').eq('customer_id', id),
     sb.from('payments').select('id,amount,note,created_at,profiles(name)').eq('customer_id', id)
   ]);
   if (a.error || b.error) return toast((a.error || b.error).message, false);
-  const rows = [...a.data.map(r => ({ d:r.created_at, t:(r.kind === 'disbursement' ? 'إيصال صرف #' : 'فاتورة #') + r.id + (r.voided_at ? ' (ملغاة)' : ''), note:r.voided_at && r.void_reason ? (r.note ? r.note + '\n' : '') + 'سبب الإلغاء: ' + r.void_reason : r.note, by:r.profiles?.name, debit:r.voided_at ? 0 : r.total, credit:r.voided_at ? 0 : r.paid })),
+  const rows = [...a.data.map(r => ({ d:r.created_at, t:(r.kind === 'disbursement' ? 'إيصال صرف #' : 'فاتورة #') + r.id, note:r.note, by:r.profiles?.name, debit:r.total, credit:r.paid })),
                 ...b.data.map(r => ({ d:r.created_at, t:'تسديد #' + r.id, note:r.note, by:r.profiles?.name, debit:0, credit:r.amount }))]
                .sort((x, y) => new Date(x.d) - new Date(y.d));
   let bal = 0;
@@ -396,27 +380,12 @@ document.addEventListener('click', e => {
     const c = C.find(x => x.id === v);
     const a = prompt(`المبلغ المسدَّد (الدين الحالي ${fmt(c.debt)}):`); if (a === null) return;
     const n = (prompt('ملاحظة التسديد (اختياري):') || '').trim();
-    return run(sb.rpc('add_payment', { p_customer: v, p_amount: num(a), p_note: n || null }), 'تم تسجيل التسديد');
+    return run(sb.rpc('add_payment', { p_customer: v, p_amount: Number(a), p_note: n || null }), 'تم تسجيل التسديد');
   }
   if ((v = g('limit'))) {
     const c = C.find(x => x.id === v), n = prompt('حد الائتمان الجديد (0 = بلا حد):', c.credit_limit); if (n === null) return;
-    if (!(num(n) >= 0)) return toast('قيمة غير صحيحة', false);
-    return run(sb.from('customers').update({ credit_limit: num(n) }).eq('id', v), 'تم تعديل الحد');
-  }
-  if ((v = g('rename'))) {
-    const c = C.find(x => x.id === v), n = prompt('الاسم الجديد للعميل:', c.name); if (n === null) return;
-    return run(sb.rpc('rename_customer', { p_id: v, p_name: n }), 'تم تعديل الاسم');
-  }
-  if ((v = g('del'))) {
-    const c = C.find(x => x.id === v);
-    if (!confirm(`حذف العميل «${c.name}» نهائياً؟\nلا يُحذف إلا العميل الذي ليس له أي حركات.`)) return;
-    $('#stmt').classList.add('hidden');
-    return run(sb.rpc('delete_customer', { p_id: v }), 'تم حذف العميل');
-  }
-  if ((v = g('void'))) {
-    const why = prompt(`إلغاء الفاتورة #${v}\nاكتب سبب الإلغاء (اختياري)، أو اضغط «إلغاء الأمر» للتراجع:`); if (why === null) return;
-    $('#stmt').classList.add('hidden');
-    return run(sb.rpc('void_invoice', { p_id: Number(v), p_reason: why.trim() || null }), 'تم إلغاء الفاتورة');
+    if (!(Number(n) >= 0)) return toast('قيمة غير صحيحة', false);
+    return run(sb.from('customers').update({ credit_limit: Number(n) }).eq('id', v), 'تم تعديل الحد');
   }
   if ((v = g('edit-user'))) {
     const u = U.find(x => x.id === v); if (!u) return;
