@@ -8,6 +8,7 @@ Run these files once, in order, on a fresh Supabase project:
 4. `004_receipts.sql` — invoice/disbursement kinds.
 5. `005_edit.sql` — customer editing, safe deletion, voiding, and the final hardened bodies of `create_debt_invoice` / `add_payment` (amount cap, rounding before validation, credit-limit message with figures).
 6. `006_stats.sql` — database timezone and the statistics view.
+7. `007_seller_void.sql` — allows authenticated sellers to void non-inventory debt invoices and disbursement receipts.
 
 Each migration is intended to be rerunnable. The `-- depends:` header records the required predecessor.
 
@@ -17,7 +18,7 @@ Each migration is intended to be rerunnable. The `-- depends:` header records th
 
 ## Verification
 
-After running all six files, verify:
+After running all seven files, verify:
 
 ```sql
 -- الدوال موجودة

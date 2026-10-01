@@ -611,9 +611,9 @@ function renderCustomerDetail(id){
       <div class="t2"><span>${esc(dt(r.d))}</span><span>${esc(r.by || '—')}</span></div>
       ${r.note ? `<div class="note">${esc(r.note)}</div>` : ''}
       <div class="run"><span>الرصيد بعد الحركة</span><b>${fmt(r.balance)}</b></div>
-      ${(r.type === 'pay' || r.type === 'out' || (admin && r.src === 'inv' && !r.voided)) ? `<div class="actions">
+      ${(r.type === 'pay' || r.type === 'out' || (r.src === 'inv' && !r.voided)) ? `<div class="actions">
         ${r.type === 'pay' || r.type === 'out' ? `<button class="btn alt sm" data-receipt="${r.src}:${r.id}">طباعة الإيصال</button>` : ''}
-        ${admin && r.src === 'inv' && !r.voided ? `<button class="btn del sm" data-void="${r.id}">إلغاء الفاتورة</button>` : ''}
+        ${r.src === 'inv' && !r.voided ? `<button class="btn del sm" data-void="${r.id}">إلغاء الفاتورة</button>` : ''}
       </div>` : ''}
     </div>`;
   }).join('')
