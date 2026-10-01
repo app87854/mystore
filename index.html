@@ -129,27 +129,33 @@
     @page{size:A4 portrait;margin:12mm}
     html,body{height:auto;overflow:visible;background:#fff}
     body > *:not(#print-area){display:none!important}
-    #print-area{display:block!important;color:#000;background:#fff;font-family:Cairo,Tahoma,Arial,sans-serif;direction:rtl;font-size:11px;line-height:1.45}
-    #print-area *{color:#000!important;box-shadow:none!important}
-    .print-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:12px;gap:16px}
+    #print-area{display:block!important;background:#fff;color:#111;font-family:Cairo,Tahoma,Arial,sans-serif;direction:rtl;font-size:11px;line-height:1.45}
+    #print-area *{box-shadow:none!important}
+    .print-head{display:flex;justify-content:space-between;align-items:center;gap:16px;background:var(--main);color:#fff;border-radius:8px;padding:10px 14px;margin-bottom:10px;print-color-adjust:exact;-webkit-print-color-adjust:exact}
     .print-store{font-size:20px;font-weight:800}
-    .print-title{font-size:18px;font-weight:800;text-align:left}
-    .print-meta{display:grid;grid-template-columns:1fr 1fr;gap:5px 18px;border:1px solid #999;padding:8px;margin-bottom:12px}
-    .print-meta b{font-weight:800}
+    .print-title{font-size:18px;font-weight:800}
+    .print-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-bottom:10px}
+    .print-meta div{border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:#fff}
+    .print-meta b{font-weight:800;color:var(--main)}
     .print-table{width:100%;border-collapse:collapse;table-layout:fixed}
-    .print-table th,.print-table td{border:1px solid #777;padding:5px 4px;vertical-align:top;word-break:break-word}
-    .print-table th{background:#eee;font-weight:800}
-    .print-table th:nth-child(1),.print-table td:nth-child(1){width:15%}
-    .print-table th:nth-child(2),.print-table td:nth-child(2){width:14%}
-    .print-table th:nth-child(3),.print-table td:nth-child(3){width:29%}
-    .print-table th:nth-child(4),.print-table td:nth-child(4),.print-table th:nth-child(5),.print-table td:nth-child(5),.print-table th:nth-child(6),.print-table td:nth-child(6){width:14%}
-    .print-void{color:#666!important;text-decoration:line-through}
-    .print-summary{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid #777;border-top:0;margin-bottom:28px}
-    .print-summary div{padding:7px;border-left:1px solid #777;text-align:center}
-    .print-summary div:last-child{border-left:0}
+    .print-table th,.print-table td{border:1px solid var(--line);padding:5px 4px;vertical-align:top;word-break:break-word}
+    .print-table thead th{background:var(--main);color:#fff;font-weight:800;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+    .print-table tbody tr:nth-child(even){background:#eef4f1}
+    .print-table th:nth-child(1),.print-table td:nth-child(1){width:20%}
+    .print-table th:nth-child(2),.print-table td:nth-child(2){width:30%}
+    .print-table th:nth-child(3),.print-table td:nth-child(3){width:13%;text-align:center}
+    .print-table th:nth-child(4),.print-table td:nth-child(4){width:14%;text-align:center}
+    .print-table th:nth-child(5),.print-table td:nth-child(5){width:12%;text-align:center}
+    .print-table th:nth-child(6),.print-table td:nth-child(6){width:11%;text-align:center}
+    .print-debit{color:var(--bad);font-weight:800}
+    .print-credit{color:var(--ok);font-weight:800}
+    .print-void td{color:#6b7280;text-decoration:line-through}
+    .print-total{margin:14px 0 0 auto;width:240px;border:2px solid var(--main);border-radius:10px;overflow:hidden;text-align:center}
+    .print-total .t{background:var(--main);color:#fff;font-weight:800;padding:7px;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+    .print-total .v{font-size:22px;font-weight:900;padding:10px;color:var(--main);direction:ltr}
     .print-sign{display:flex;justify-content:space-between;gap:30px;margin-top:35px;padding-top:10px}
-    .print-sign span{display:block;border-top:1px solid #000;width:35%;text-align:center;padding-top:5px}
-    .print-empty{text-align:center;border:1px solid #777;padding:30px;margin:20px 0}
+    .print-sign span{display:block;border-top:1px solid #555;width:35%;text-align:center;padding-top:5px}
+    .print-empty{text-align:center;border:1px dashed var(--line);padding:30px;margin:20px 0;border-radius:8px}
   }
 </style>
 </head>
@@ -634,16 +640,22 @@ async function printStatement(customerId, btn){
     // نفس الدالة التي تبني كشف الشاشة — فلا يمكن أن يختلف الرقمان
     const st = buildStatement(iRes.rows, yRes.rows);
     const customer = cRes.data;
-    const TYPE_LABEL = { inv: 'فاتورة دين', out: 'إيصال صرف', pay: 'تسديد', void: 'فاتورة ملغاة' };
 
-    const tableRows = st.rows.map(r => `<tr class="${r.voided ? 'print-void' : ''}">
-        <td>${esc(new Date(r.d).toLocaleDateString('ar'))}</td>
-        <td>${esc(TYPE_LABEL[r.type] || r.type)}</td>
+    // الأعمدة: اسم العميل | الملاحظة | القيمة | التاريخ | البائع (+ الرصيد المتحرك)
+    // النوع والقيمة والأثر على الرصيد مأخوذة كما هي من buildStatement دون إعادة حساب
+    const tableRows = st.rows.map(r => {
+      const value = r.voided ? '—'
+        : r.type === 'pay' ? `<span class="print-credit">− ${fmt(r.credit)}</span>`
+        : `<span class="print-debit">+ ${fmt(r.debit)}</span>`;
+      return `<tr class="${r.voided ? 'print-void' : ''}">
+        <td>${esc(customer.name)}</td>
         <td>${esc(r.title + (r.note ? ' — ' + r.note : ''))}</td>
-        <td>${r.voided ? '—' : fmt(r.debit)}</td>
-        <td>${r.voided ? '—' : fmt(r.credit)}</td>
+        <td>${value}</td>
+        <td>${esc(new Date(r.d).toLocaleDateString('ar'))}</td>
+        <td>${esc(r.by || '—')}</td>
         <td>${fmt(r.balance)}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
     const finalBalance = st.finalBalance;
     const printedAt = new Date().toLocaleString('ar');
     area.innerHTML = `
@@ -654,8 +666,8 @@ async function printStatement(customerId, btn){
         <div>الرصيد الحالي: <b>${fmt(finalBalance)}</b></div>
         <div>تاريخ الطباعة: <b>${esc(printedAt)}</b></div>
       </div>
-      ${st.rows.length ? `<table class="print-table"><thead><tr><th>التاريخ</th><th>النوع</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${tableRows}</tbody></table>` : '<div class="print-empty">لا توجد حركات</div>'}
-      <div class="print-summary"><div>إجمالي المدين<br><b>${fmt(st.totalDebit)}</b></div><div>إجمالي الدائن<br><b>${fmt(st.totalCredit)}</b></div><div>الرصيد النهائي<br><b>${fmt(finalBalance)}</b></div></div>
+      ${st.rows.length ? `<table class="print-table"><thead><tr><th>اسم العميل</th><th>الملاحظة</th><th>القيمة</th><th>التاريخ</th><th>البائع</th><th>الرصيد</th></tr></thead><tbody>${tableRows}</tbody></table>` : '<div class="print-empty">لا توجد حركات</div>'}
+      <div class="print-total"><div class="t">المجموع النهائي</div><div class="v">${fmt(finalBalance)}</div></div>
       <div class="print-sign"><span>توقيع المسؤول</span><span>توقيع العميل</span></div>`;
     // نؤجّل الطباعة إطارين حتى يكتمل تخطيط الجدول (يمنع صفحة أولى فارغة)
     requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => window.print(), 30)));
