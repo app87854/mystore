@@ -150,6 +150,7 @@
     .print-sign{display:flex;justify-content:space-between;gap:30px;margin-top:35px;padding-top:10px}
     .print-sign span{display:block;border-top:1px solid #000;width:35%;text-align:center;padding-top:5px}
     .print-empty{text-align:center;border:1px solid #777;padding:30px;margin:20px 0}
+    .print-warn{border:2px solid #000;padding:7px 9px;margin-bottom:10px;font-weight:800}
   }
 </style>
 </head>
@@ -403,13 +404,37 @@ function subscribe(){
 
 
 /* ============ كشف حساب العميل (يُجلب كاملاً) ============ */
+// PostgREST قد يحدّ-rows لكل استجابة، فنقسم على صفحات ونقارن بعدد الصفوف الكلي
+const PAGE = 1000;
+async function fetchAll(table, cols, customerId){
+  const out = []; let from = 0, count = null;
+  for (let guard = 0; guard < 1000; guard++){
+    const { data, error, count: c } = await sb.from(table)
+      .select(cols, { count: 'exact' })
+      .eq('customer_id', customerId)
+      .order('created_at',{ascending:true}).order('id',{ascending:true})
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (c != null) count = c;
+    out.push(...(data || []));
+    from += (data || []).length;
+    if (!data || !data.length) break;
+    if (count != null ? from >= count : data.length < PAGE) break;
+  }
+  return { rows: out, complete: count == null || out.length >= count };
+}
+
 async function loadTx(id){
-  const [i, y] = await Promise.all([
-    sb.from('invoices').select(TX_INV).eq('customer_id', id).order('created_at',{ascending:true}).order('id',{ascending:true}),
-    sb.from('payments').select(TX_PAY).eq('customer_id', id).order('created_at',{ascending:true}).order('id',{ascending:true})
-  ]);
-  if (i.error || y.error) return toast('تعذّر تحميل كشف الحساب: ' + (i.error || y.error).message, false);
-  TX[String(id)] = { i: i.data || [], y: y.data || [] };
+  try {
+    const [i, y] = await Promise.all([
+      fetchAll('invoices', TX_INV, id),
+      fetchAll('payments', TX_PAY, id)
+    ]);
+    if (!i.complete || !y.complete) toast('كشف الحساب أطول من الحد المسموح — قد ينقص جزء من الحركات', false);
+    TX[String(id)] = { i: i.rows, y: y.rows };
+  } catch (e){
+    return toast('تعذّر تحميل كشف الحساب: ' + (e.message || e), false);
+  }
   if (String(detailCustomerId) === String(id)) renderCustomerDetail(id);
 }
 function openCustomer(id){
@@ -563,21 +588,25 @@ function renderCustomerDetail(id){
 }
 
 /* ============ طباعة كشف الحساب (جلب كامل مستقل عن القوائم المختصرة) ============ */
-async function printStatement(customerId){
+async function printStatement(customerId, btn){
+  btn = btn || document.querySelector(`[data-print-statement="${customerId}"]`);
   const area = $('#print-area');
+  if (btn) { btn.disabled = true; btn.textContent = 'جارٍ التجهيز…'; }
   area.innerHTML = '<div class="empty">جارٍ تجهيز كشف الحساب…</div>';
   try {
     const [cRes, iRes, yRes] = await Promise.all([
       sb.from('customers').select('id,name,phone').eq('id', customerId).single(),
-      sb.from('invoices').select(TX_INV).eq('customer_id', customerId).order('created_at',{ascending:true}).order('id',{ascending:true}),
-      sb.from('payments').select(TX_PAY).eq('customer_id', customerId).order('created_at',{ascending:true}).order('id',{ascending:true})
+      fetchAll('invoices', TX_INV, customerId),
+      fetchAll('payments', TX_PAY, customerId)
     ]);
-    const error = cRes.error || iRes.error || yRes.error;
-    if (error) { area.innerHTML = ''; return toast('تعذّر تجهيز كشف الحساب: ' + error.message, false); }
+    if (cRes.error) { area.innerHTML = ''; return toast('تعذّر تجهيز كشف الحساب: ' + cRes.error.message, false); }
+    if (!cRes.data)  { area.innerHTML = ''; return toast('العميل غير موجود', false); }
 
+    const iData = iRes.rows || [], yData = yRes.rows || [];
+    const complete = iRes.complete && yRes.complete;
     const customer = cRes.data;
     const rows = [
-      ...(iRes.data || []).map(r => ({
+      ...iData.map(r => ({
         date: r.created_at,
         type: r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة دين',
         description: `${r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة'} #${r.id}${r.note ? ' — ' + r.note : ''}`,
@@ -586,7 +615,7 @@ async function printStatement(customerId){
         voided: Boolean(r.voided_at),
         sortId: Number(r.id) || 0
       })),
-      ...(yRes.data || []).map(r => ({
+      ...yData.map(r => ({
         date: r.created_at,
         type: 'تسديد',
         description: `تسديد #${r.id}${r.note ? ' — ' + r.note : ''}`,
@@ -624,15 +653,20 @@ async function printStatement(customerId){
         <div>الرصيد الحالي: <b>${fmt(finalBalance)}</b></div>
         <div>تاريخ الطباعة: <b>${esc(printedAt)}</b></div>
       </div>
+      ${complete ? '' : '<div class="print-warn">تنبيه: تجاوز هذا العميل حدّ الاستجابة، وقد ينقص جزء من حركاته.</div>'}
       ${rows.length ? `<table class="print-table"><thead><tr><th>التاريخ</th><th>النوع</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${tableRows}</tbody></table>` : '<div class="print-empty">لا توجد حركات</div>'}
       <div class="print-summary"><div>إجمالي المدين<br><b>${fmt(totalDebit)}</b></div><div>إجمالي الدائن<br><b>${fmt(totalCredit)}</b></div><div>الرصيد النهائي<br><b>${fmt(finalBalance)}</b></div></div>
       <div class="print-sign"><span>توقيع المسؤول</span><span>توقيع العميل</span></div>`;
-    window.print();
+    // نؤجّل الطباعة إطارين حتى يكتمل تخطيط الجدول (يمنع صفحة أولى فارغة)
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => window.print(), 30)));
   } catch (err) {
     area.innerHTML = '';
     toast('تعذّر تجهيز كشف الحساب: ' + (err.message || err), false);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'طباعة كشف الحساب'; }
   }
 }
+window.addEventListener('afterprint', () => { $('#print-area').innerHTML = ''; });
 
 
 /* ---- بطاقة حركة مختصرة (للإحصائيات) ---- */
@@ -653,7 +687,7 @@ document.addEventListener('click', e => {
 
   const g = a => e.target.closest(`[data-${a}]`)?.dataset[a.replace(/-./g, m => m[1].toUpperCase())];
   let v;
-  if ((v = g('print-statement'))) return printStatement(v);
+  if ((v = g('print-statement'))) return printStatement(v, e.target.closest('[data-print-statement]'));
   if ((v = g('pay'))) {
     const c = C.find(x => String(x.id) === String(v));
     const a = prompt(`المبلغ المسدَّد (الدين الحالي ${fmt(c.debt)}):`, c.debt); if (a === null) return;
