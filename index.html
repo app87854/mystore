@@ -150,7 +150,6 @@
     .print-sign{display:flex;justify-content:space-between;gap:30px;margin-top:35px;padding-top:10px}
     .print-sign span{display:block;border-top:1px solid #000;width:35%;text-align:center;padding-top:5px}
     .print-empty{text-align:center;border:1px solid #777;padding:30px;margin:20px 0}
-    .print-warn{border:2px solid #000;padding:7px 9px;margin-bottom:10px;font-weight:800}
   }
 </style>
 </head>
@@ -424,6 +423,49 @@ async function fetchAll(table, cols, customerId){
   return { rows: out, complete: count == null || out.length >= count };
 }
 
+// ترتيب حتمي: الزمن، ثم الفاتورة قبل التسديد، ثم المعرّف.
+// (المعرّفات من جدولين مختلفين فلا يصحّ خلطها في مقارنة واحدة)
+function cmpStatement(a, b){
+  const t = new Date(a.d) - new Date(b.d);
+  if (t) return t;
+  if (a.src !== b.src) return a.src === 'inv' ? -1 : 1;
+  return (a.id || 0) - (b.id || 0);
+}
+
+/* مصدر واحد للحقيقة: يبني حركات العميل مرتّبة، مع الرصيد بعد كل حركة
+   والإجماليات والرصيد النهائي. تستخدمه الشاشة والطباعة معاً، فلا تختلفان أبداً. */
+function buildStatement(invRows, payRows){
+  const rows = [
+    ...(invRows || []).map(r => {
+      const voided = Boolean(r.voided_at);
+      return {
+        src: 'inv', id: r.id, d: r.created_at, voided,
+        type: voided ? 'void' : (r.kind === 'disbursement' ? 'out' : 'inv'),
+        title: (r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة') + ' #' + r.id + (voided ? ' (ملغاة)' : ''),
+        note: voided && r.void_reason
+          ? (r.note ? r.note + ' — سبب الإلغاء: ' + r.void_reason : 'سبب الإلغاء: ' + r.void_reason)
+          : r.note,
+        by: r.profiles?.name,
+        debit: voided ? 0 : Number(r.total) || 0,
+        credit: 0
+      };
+    }),
+    ...(payRows || []).map(r => ({
+      src: 'pay', id: r.id, d: r.created_at, voided: false, type: 'pay',
+      title: 'تسديد #' + r.id, note: r.note, by: r.profiles?.name,
+      debit: 0, credit: Number(r.amount) || 0
+    }))
+  ].sort(cmpStatement);
+
+  let running = 0, totalDebit = 0, totalCredit = 0;
+  for (const r of rows){
+    r.balance = Math.round((running + r.debit - r.credit) * 100) / 100;
+    running = r.balance;
+    if (!r.voided){ totalDebit += r.debit; totalCredit += r.credit; }
+  }
+  return { rows, totalDebit: Math.round(totalDebit*100)/100, totalCredit: Math.round(totalCredit*100)/100, finalBalance: running };
+}
+
 async function loadTx(id){
   try {
     const [i, y] = await Promise.all([
@@ -431,7 +473,7 @@ async function loadTx(id){
       fetchAll('payments', TX_PAY, id)
     ]);
     if (!i.complete || !y.complete) toast('كشف الحساب أطول من الحد المسموح — قد ينقص جزء من الحركات', false);
-    TX[String(id)] = { i: i.rows, y: y.rows };
+    TX[String(id)] = { st: buildStatement(i.rows, y.rows) };
   } catch (e){
     return toast('تعذّر تحميل كشف الحساب: ' + (e.message || e), false);
   }
@@ -552,36 +594,17 @@ function renderCustomerDetail(id){
     $('#customer-tx').innerHTML = '<div class="empty">جارٍ تحميل كشف الحساب…</div>';
     return;
   }
-  const rows = [
-    ...src.i.map(r => ({
-      k: r.voided_at ? 'void' : (r.kind === 'disbursement' ? 'out' : 'inv'),
-      d: r.created_at,
-      title: (r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة') + ' #' + r.id,
-      note: r.voided_at && r.void_reason ? (r.note ? r.note + '\n' : '') + 'سبب الإلغاء: ' + r.void_reason : r.note,
-      by: r.profiles?.name,
-      debit: r.voided_at ? 0 : Number(r.total),
-      credit: 0,
-      raw_id: r.id
-    })),
-    ...src.y.map(r => ({
-      k: 'pay', d: r.created_at, title: 'تسديد #' + r.id, note: r.note, by: r.profiles?.name,
-      debit: 0, credit: Number(r.amount)
-    }))
-  ].sort((a, b) => new Date(a.d) - new Date(b.d) || a.raw_id - b.raw_id);
 
-
-  let bal = 0;
-  $('#customer-tx').innerHTML = rows.length ? rows.map(r => {
-    bal += r.debit - r.credit;
-    const amt = r.k === 'pay'
+  $('#customer-tx').innerHTML = src.st.rows.length ? src.st.rows.map(r => {
+    const amt = r.type === 'pay'
       ? `<span style="color:var(--ok)">− ${fmt(r.credit)}</span>`
-      : r.k === 'void' ? '<span class="hint">ملغاة</span>' : `<span style="color:var(--bad)">+ ${fmt(r.debit)}</span>`;
-    return `<div class="tx ${r.k}">
+      : r.voided ? '<span class="hint">ملغاة</span>' : `<span style="color:var(--bad)">+ ${fmt(r.debit)}</span>`;
+    return `<div class="tx ${r.type === 'pay' ? 'pay' : r.voided ? 'void' : r.type}">
       <div class="t1"><span>${esc(r.title)}</span><span>${amt}</span></div>
       <div class="t2"><span>${esc(dt(r.d))}</span><span>${esc(r.by || '—')}</span></div>
       ${r.note ? `<div class="note">${esc(r.note)}</div>` : ''}
-      <div class="run"><span>الرصيد بعد الحركة</span><b>${fmt(bal)}</b></div>
-      ${admin && r.k !== 'pay' && r.k !== 'void' ? `<div class="actions"><button class="btn del sm" data-void="${r.raw_id}">إلغاء الفاتورة</button></div>` : ''}
+      <div class="run"><span>الرصيد بعد الحركة</span><b>${fmt(r.balance)}</b></div>
+      ${admin && r.src === 'inv' && !r.voided ? `<div class="actions"><button class="btn del sm" data-void="${r.id}">إلغاء الفاتورة</button></div>` : ''}
     </div>`;
   }).join('')
     : '<div class="empty">لا توجد حركات لهذا العميل.</div>';
@@ -602,48 +625,26 @@ async function printStatement(customerId, btn){
     if (cRes.error) { area.innerHTML = ''; return toast('تعذّر تجهيز كشف الحساب: ' + cRes.error.message, false); }
     if (!cRes.data)  { area.innerHTML = ''; return toast('العميل غير موجود', false); }
 
-    const iData = iRes.rows || [], yData = yRes.rows || [];
-    const complete = iRes.complete && yRes.complete;
-    const customer = cRes.data;
-    const rows = [
-      ...iData.map(r => ({
-        date: r.created_at,
-        type: r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة دين',
-        description: `${r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة'} #${r.id}${r.note ? ' — ' + r.note : ''}`,
-        debit: r.voided_at ? 0 : Number(r.total) || 0,
-        credit: 0,
-        voided: Boolean(r.voided_at),
-        sortId: Number(r.id) || 0
-      })),
-      ...yData.map(r => ({
-        date: r.created_at,
-        type: 'تسديد',
-        description: `تسديد #${r.id}${r.note ? ' — ' + r.note : ''}`,
-        debit: 0,
-        credit: Number(r.amount) || 0,
-        voided: false,
-        sortId: Number(r.id) || 0
-      }))
-    ].sort((a,b) => new Date(a.date) - new Date(b.date) || a.sortId - b.sortId);
+    // كشف ناقص وثيقة مالية ناقصة: لا نطبع شيئاً. يُعاد المحاولة بزر الطباعة.
+    if (!iRes.complete || !yRes.complete){
+      area.innerHTML = '';
+      return toast('تعذّر جلب كشف الحساب كاملاً (تجاوز حدّ الاستجابة) — لم يُطبع شيء', false);
+    }
 
-    let running = 0, totalDebit = 0, totalCredit = 0;
-    const tableRows = rows.map(r => {
-      if (!r.voided) {
-        totalDebit += r.debit;
-        totalCredit += r.credit;
-        running += r.debit - r.credit;
-      }
-      const label = r.voided ? `${r.description} (ملغاة)` : r.description;
-      return `<tr class="${r.voided ? 'print-void' : ''}">
-        <td>${esc(new Date(r.date).toLocaleDateString('ar'))}</td>
-        <td>${esc(r.type)}${r.voided ? ' (ملغاة)' : ''}</td>
-        <td>${esc(label)}</td>
+    // نفس الدالة التي تبني كشف الشاشة — فلا يمكن أن يختلف الرقمان
+    const st = buildStatement(iRes.rows, yRes.rows);
+    const customer = cRes.data;
+    const TYPE_LABEL = { inv: 'فاتورة دين', out: 'إيصال صرف', pay: 'تسديد', void: 'فاتورة ملغاة' };
+
+    const tableRows = st.rows.map(r => `<tr class="${r.voided ? 'print-void' : ''}">
+        <td>${esc(new Date(r.d).toLocaleDateString('ar'))}</td>
+        <td>${esc(TYPE_LABEL[r.type] || r.type)}</td>
+        <td>${esc(r.title + (r.note ? ' — ' + r.note : ''))}</td>
         <td>${r.voided ? '—' : fmt(r.debit)}</td>
         <td>${r.voided ? '—' : fmt(r.credit)}</td>
-        <td>${fmt(running)}</td>
-      </tr>`;
-    }).join('');
-    const finalBalance = running;
+        <td>${fmt(r.balance)}</td>
+      </tr>`).join('');
+    const finalBalance = st.finalBalance;
     const printedAt = new Date().toLocaleString('ar');
     area.innerHTML = `
       <div class="print-head"><div class="print-store">${esc(STORE_NAME)}</div><div class="print-title">كشف حساب</div></div>
@@ -653,9 +654,8 @@ async function printStatement(customerId, btn){
         <div>الرصيد الحالي: <b>${fmt(finalBalance)}</b></div>
         <div>تاريخ الطباعة: <b>${esc(printedAt)}</b></div>
       </div>
-      ${complete ? '' : '<div class="print-warn">تنبيه: تجاوز هذا العميل حدّ الاستجابة، وقد ينقص جزء من حركاته.</div>'}
-      ${rows.length ? `<table class="print-table"><thead><tr><th>التاريخ</th><th>النوع</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${tableRows}</tbody></table>` : '<div class="print-empty">لا توجد حركات</div>'}
-      <div class="print-summary"><div>إجمالي المدين<br><b>${fmt(totalDebit)}</b></div><div>إجمالي الدائن<br><b>${fmt(totalCredit)}</b></div><div>الرصيد النهائي<br><b>${fmt(finalBalance)}</b></div></div>
+      ${st.rows.length ? `<table class="print-table"><thead><tr><th>التاريخ</th><th>النوع</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${tableRows}</tbody></table>` : '<div class="print-empty">لا توجد حركات</div>'}
+      <div class="print-summary"><div>إجمالي المدين<br><b>${fmt(st.totalDebit)}</b></div><div>إجمالي الدائن<br><b>${fmt(st.totalCredit)}</b></div><div>الرصيد النهائي<br><b>${fmt(finalBalance)}</b></div></div>
       <div class="print-sign"><span>توقيع المسؤول</span><span>توقيع العميل</span></div>`;
     // نؤجّل الطباعة إطارين حتى يكتمل تخطيط الجدول (يمنع صفحة أولى فارغة)
     requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => window.print(), 30)));
