@@ -278,10 +278,20 @@ async function statement(id){
 async function run(p, okMsg){ const { error } = await p; error ? toast(error.message, false) : (toast(okMsg), load()); }
 
 /* ---- المستخدمون (دالة user-admin) ---- */
+async function adminCall(body){
+  const result = await sb.functions.invoke('user-admin', { body });
+  if (!result.error) return result;
+  let message = result.error.message;
+  try {
+    const detail = await result.error.context?.json();
+    message = detail?.error || message;
+  } catch (_) {}
+  return { data: { error: message }, error: null };
+}
 async function loadUsers(){
   if (!admin) return;
-  const { data, error } = await sb.functions.invoke('user-admin', { body: { action: 'list' } });
-  if (error || data?.error) return toast(data?.error || error.message, false);
+  const { data } = await adminCall({ action: 'list' });
+  if (data?.error) return toast(data.error, false);
   U = data.users || [];
   $('#users').innerHTML = U.length ? U.map(u => `<tr><td>${esc(u.username)}</td><td>${esc(u.name)}</td>
     <td>${u.role === 'admin' ? 'مدير' : 'بائع'}</td><td><button class="btn alt sm" data-edit-user="${u.id}">تعديل</button></td></tr>`).join('')
@@ -298,9 +308,9 @@ $('#btn-save-user').onclick = async () => {
     name: $('#u-name').value.trim(), role: $('#u-role').value, password: $('#u-password').value };
   if (editingUserId) body.id = editingUserId;
   const b = $('#btn-save-user'); b.disabled = true;
-  const { data, error } = await sb.functions.invoke('user-admin', { body });
+  const { data } = await adminCall(body);
   b.disabled = false;
-  if (error || data?.error) return toast(data?.error || error.message, false);
+  if (data?.error) return toast(data.error, false);
   toast(editingUserId ? 'تم تعديل المستخدم' : 'تمت إضافة المستخدم'); resetUserForm(); loadUsers();
 };
 $('#btn-cancel-user').onclick = resetUserForm;
