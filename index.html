@@ -122,6 +122,35 @@
   #toast.ok{background:var(--ok);display:block}
   #toast.err{background:var(--bad);display:block}
   .hidden{display:none!important}
+
+  /* ====== كشف الحساب المطبوع ====== */
+  .print-only{display:none}
+  @media print{
+    @page{size:A4 portrait;margin:12mm}
+    html,body{height:auto;overflow:visible;background:#fff}
+    body > *:not(#print-area){display:none!important}
+    #print-area{display:block!important;color:#000;background:#fff;font-family:Cairo,Tahoma,Arial,sans-serif;direction:rtl;font-size:11px;line-height:1.45}
+    #print-area *{color:#000!important;box-shadow:none!important}
+    .print-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:12px;gap:16px}
+    .print-store{font-size:20px;font-weight:800}
+    .print-title{font-size:18px;font-weight:800;text-align:left}
+    .print-meta{display:grid;grid-template-columns:1fr 1fr;gap:5px 18px;border:1px solid #999;padding:8px;margin-bottom:12px}
+    .print-meta b{font-weight:800}
+    .print-table{width:100%;border-collapse:collapse;table-layout:fixed}
+    .print-table th,.print-table td{border:1px solid #777;padding:5px 4px;vertical-align:top;word-break:break-word}
+    .print-table th{background:#eee;font-weight:800}
+    .print-table th:nth-child(1),.print-table td:nth-child(1){width:15%}
+    .print-table th:nth-child(2),.print-table td:nth-child(2){width:14%}
+    .print-table th:nth-child(3),.print-table td:nth-child(3){width:29%}
+    .print-table th:nth-child(4),.print-table td:nth-child(4),.print-table th:nth-child(5),.print-table td:nth-child(5),.print-table th:nth-child(6),.print-table td:nth-child(6){width:14%}
+    .print-void{color:#666!important;text-decoration:line-through}
+    .print-summary{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid #777;border-top:0;margin-bottom:28px}
+    .print-summary div{padding:7px;border-left:1px solid #777;text-align:center}
+    .print-summary div:last-child{border-left:0}
+    .print-sign{display:flex;justify-content:space-between;gap:30px;margin-top:35px;padding-top:10px}
+    .print-sign span{display:block;border-top:1px solid #000;width:35%;text-align:center;padding-top:5px}
+    .print-empty{text-align:center;border:1px solid #777;padding:30px;margin:20px 0}
+  }
 </style>
 </head>
 <body>
@@ -239,6 +268,8 @@
 
 
 <div id="toast"></div>
+
+<div id="print-area" class="print-only"></div>
 
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -482,6 +513,7 @@ function renderCustomerDetail(id){
     <div class="pbal">${fmt(debt)}</div>
     <div class="pmeta">${lim > 0 ? `حد الائتمان: ${fmt(lim)} · المتاح: ${fmt(lim - debt)}` : 'بلا حد ائتمان'}</div>
     <div class="profile-actions">
+      <button class="btn" data-print-statement="${c.id}">طباعة كشف الحساب</button>
       ${debt > 0 ? `<button class="btn" data-pay="${c.id}">تسديد دفعة</button>` : ''}
       ${admin ? `<button class="btn" data-rename="${c.id}">تعديل الاسم</button>` : ''}
       ${admin ? `<button class="btn" data-limit="${c.id}">تعديل الحد</button>` : ''}
@@ -530,6 +562,78 @@ function renderCustomerDetail(id){
     : '<div class="empty">لا توجد حركات لهذا العميل.</div>';
 }
 
+/* ============ طباعة كشف الحساب (جلب كامل مستقل عن القوائم المختصرة) ============ */
+async function printStatement(customerId){
+  const area = $('#print-area');
+  area.innerHTML = '<div class="empty">جارٍ تجهيز كشف الحساب…</div>';
+  try {
+    const [cRes, iRes, yRes] = await Promise.all([
+      sb.from('customers').select('id,name,phone').eq('id', customerId).single(),
+      sb.from('invoices').select(TX_INV).eq('customer_id', customerId).order('created_at',{ascending:true}).order('id',{ascending:true}),
+      sb.from('payments').select(TX_PAY).eq('customer_id', customerId).order('created_at',{ascending:true}).order('id',{ascending:true})
+    ]);
+    const error = cRes.error || iRes.error || yRes.error;
+    if (error) { area.innerHTML = ''; return toast('تعذّر تجهيز كشف الحساب: ' + error.message, false); }
+
+    const customer = cRes.data;
+    const rows = [
+      ...(iRes.data || []).map(r => ({
+        date: r.created_at,
+        type: r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة دين',
+        description: `${r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة'} #${r.id}${r.note ? ' — ' + r.note : ''}`,
+        debit: r.voided_at ? 0 : Number(r.total) || 0,
+        credit: 0,
+        voided: Boolean(r.voided_at),
+        sortId: Number(r.id) || 0
+      })),
+      ...(yRes.data || []).map(r => ({
+        date: r.created_at,
+        type: 'تسديد',
+        description: `تسديد #${r.id}${r.note ? ' — ' + r.note : ''}`,
+        debit: 0,
+        credit: Number(r.amount) || 0,
+        voided: false,
+        sortId: Number(r.id) || 0
+      }))
+    ].sort((a,b) => new Date(a.date) - new Date(b.date) || a.sortId - b.sortId);
+
+    let running = 0, totalDebit = 0, totalCredit = 0;
+    const tableRows = rows.map(r => {
+      if (!r.voided) {
+        totalDebit += r.debit;
+        totalCredit += r.credit;
+        running += r.debit - r.credit;
+      }
+      const label = r.voided ? `${r.description} (ملغاة)` : r.description;
+      return `<tr class="${r.voided ? 'print-void' : ''}">
+        <td>${esc(new Date(r.date).toLocaleDateString('ar'))}</td>
+        <td>${esc(r.type)}${r.voided ? ' (ملغاة)' : ''}</td>
+        <td>${esc(label)}</td>
+        <td>${r.voided ? '—' : fmt(r.debit)}</td>
+        <td>${r.voided ? '—' : fmt(r.credit)}</td>
+        <td>${fmt(running)}</td>
+      </tr>`;
+    }).join('');
+    const finalBalance = running;
+    const printedAt = new Date().toLocaleString('ar');
+    area.innerHTML = `
+      <div class="print-head"><div class="print-store">${esc(STORE_NAME)}</div><div class="print-title">كشف حساب</div></div>
+      <div class="print-meta">
+        <div>العميل: <b>${esc(customer.name)}</b></div>
+        <div>الهاتف: <b>${esc(customer.phone || '—')}</b></div>
+        <div>الرصيد الحالي: <b>${fmt(finalBalance)}</b></div>
+        <div>تاريخ الطباعة: <b>${esc(printedAt)}</b></div>
+      </div>
+      ${rows.length ? `<table class="print-table"><thead><tr><th>التاريخ</th><th>النوع</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${tableRows}</tbody></table>` : '<div class="print-empty">لا توجد حركات</div>'}
+      <div class="print-summary"><div>إجمالي المدين<br><b>${fmt(totalDebit)}</b></div><div>إجمالي الدائن<br><b>${fmt(totalCredit)}</b></div><div>الرصيد النهائي<br><b>${fmt(finalBalance)}</b></div></div>
+      <div class="print-sign"><span>توقيع المسؤول</span><span>توقيع العميل</span></div>`;
+    window.print();
+  } catch (err) {
+    area.innerHTML = '';
+    toast('تعذّر تجهيز كشف الحساب: ' + (err.message || err), false);
+  }
+}
+
 
 /* ---- بطاقة حركة مختصرة (للإحصائيات) ---- */
 function txCardHTML(r){
@@ -549,6 +653,7 @@ document.addEventListener('click', e => {
 
   const g = a => e.target.closest(`[data-${a}]`)?.dataset[a.replace(/-./g, m => m[1].toUpperCase())];
   let v;
+  if ((v = g('print-statement'))) return printStatement(v);
   if ((v = g('pay'))) {
     const c = C.find(x => String(x.id) === String(v));
     const a = prompt(`المبلغ المسدَّد (الدين الحالي ${fmt(c.debt)}):`, c.debt); if (a === null) return;
