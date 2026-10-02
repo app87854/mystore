@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f5c4d">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="سجل الديون">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./assets/icon-192.png">
 <title>سجل الديون</title>
 <style>
   :root{--ink:#1c2321;--mute:#66736f;--line:#d9dfdc;--bg:#f3f5f2;--main:#0f5c4d;--bad:#b3261e;--ok:#166534;--nav-h:64px}
@@ -320,6 +326,10 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+}
+
 const SUPABASE_URL = 'https://xnadkvsvdcksbusvobnk.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_bIQuyBrBDrE8SdX-W8iP4g_PvPuz_us';
 const STORE_NAME   = 'سجل الديون';
