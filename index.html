@@ -629,7 +629,7 @@ function renderFeed(){
   const rows = [
     ...(type === 'payment' ? [] : I.map(r => ({
       k: r.voided_at ? 'void' : (r.kind === 'disbursement' ? 'out' : 'inv'), kind: r.kind, d: r.created_at,
-      cid: r.customer_id, who: r.customers?.name, amt: Number(r.total), by: r.profiles?.name,
+      id: r.id, cid: r.customer_id, who: r.customers?.name, amt: Number(r.total), by: r.profiles?.name,
       title: (r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة') + ' #' + r.id
     }))),
     ...(type === 'invoice' || type === 'disbursement' ? [] : Y.map(r => ({
