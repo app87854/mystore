@@ -63,6 +63,13 @@
   .btn.del{background:#fff;color:var(--bad);border-color:var(--bad)}
   .btn.sm{padding:7px 12px;font-size:13px;border-radius:8px}
   .btn:disabled{opacity:.5}
+  .kind-picker{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .kind-btn{min-height:62px;border-radius:12px;border:2px solid;font-weight:800;font-size:16px;display:flex;align-items:center;justify-content:center;gap:8px;transition:.15s}
+  .kind-btn .kind-sign{font-size:28px;line-height:1}
+  .kind-btn.debt{color:var(--bad);border-color:var(--bad);background:#fff5f4}
+  .kind-btn.settlement{color:var(--ok);border-color:var(--ok);background:#f3fff7}
+  .kind-btn:not(.selected){opacity:.55;filter:saturate(.65)}
+  .kind-btn.selected{opacity:1;box-shadow:0 0 0 3px rgba(15,92,77,.12)}
   .empty{color:var(--mute);padding:20px;text-align:center;font-size:14px}
   .hint{color:var(--mute);font-size:13px}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -237,12 +244,12 @@
       <div class="card">
   <h2>فاتورة جديدة</h2>
         <div class="stack">
-          <label>النوع
-            <select id="inv-kind">
-            <option value="invoice">فاتورة دين (تزيد الدين)</option>
-            <option value="disbursement">فاتورة سداد (تنقص الدين)</option>
-            </select>
-          </label>
+          <label>نوع الفاتورة</label>
+          <input id="inv-kind" type="hidden" value="invoice">
+          <div class="kind-picker" role="group" aria-label="نوع الفاتورة">
+            <button type="button" class="kind-btn debt selected" data-kind="invoice"><span class="kind-sign">+</span><span>فاتورة دين</span></button>
+            <button type="button" class="kind-btn settlement" data-kind="disbursement"><span class="kind-sign">−</span><span>فاتورة سداد</span></button>
+          </div>
           <label>العميل<select id="inv-customer"></select></label>
           <div class="hint" id="cust-hint"></div>
           <label>القيمة<input id="inv-amount" type="number" min="0" step="any" inputmode="decimal" placeholder="0.00"></label>
@@ -338,6 +345,14 @@ const STORE_NAME   = 'سجل الديون';
 
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+document.querySelectorAll('[data-kind]').forEach(btn => {
+  btn.onclick = () => {
+    $('#inv-kind').value = btn.dataset.kind;
+    document.querySelectorAll('[data-kind]').forEach(x => x.classList.toggle('selected', x === btn));
+    hint();
+  };
+});
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const fmt = n => (Number(n) || 0).toFixed(2);
