@@ -61,6 +61,7 @@
   .hint{color:var(--mute);font-size:13px}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .stack{display:flex;flex-direction:column;gap:10px}
+  .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
   label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--mute)}
 
 
@@ -186,6 +187,22 @@
       <div class="kpi" id="kpi"></div>
       <div class="card">
         <h2>آخر الحركات</h2>
+        <div class="filters">
+          <label>العميل<select id="feed-customer"><option value="">كل العملاء</option></select></label>
+          <label>النوع<select id="feed-type">
+            <option value="">كل الحركات</option>
+            <option value="invoice">فواتير فقط</option>
+            <option value="disbursement">إيصالات صرف فقط</option>
+            <option value="payment">تسديدات فقط</option>
+          </select></label>
+          <label>الفترة<select id="feed-days">
+            <option value="0">الكل</option><option value="1">اليوم</option>
+            <option value="7">آخر 7 أيام</option><option value="30">آخر 30 يوم</option>
+            <option value="90">آخر 90 يوم</option>
+          </select></label>
+          <label>تاريخ محدد<input id="feed-date" type="date"></label>
+        </div>
+        <div class="hint" id="feed-summary"></div>
         <div class="tx-list" id="recent-tx"></div>
       </div>
       <div class="card">
@@ -229,6 +246,9 @@
       <div class="card" style="display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:14px">إجمالي الديون</span>
         <b id="total-debt" style="font-size:18px;color:var(--bad)">0.00</b>
+      </div>
+      <div class="card">
+        <label>بحث عن عميل<input id="customer-search" type="search" placeholder="اكتب جزءاً من اسم العميل" autocomplete="off"></label>
       </div>
       <div class="cust-list stack" id="customers"></div>
     </section>
@@ -544,13 +564,8 @@ function renderStats(){
   `;
 
 
-  // آخر 8 حركات
-  const recent = [
-    ...I.map(r => ({ k: r.voided_at ? 'void' : (r.kind === 'disbursement' ? 'out' : 'inv'), d: r.created_at, title: (r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة') + ' #' + r.id, who: r.customers?.name, amt: Number(r.total), by: r.profiles?.name })),
-    ...Y.map(r => ({ k: 'pay', d: r.created_at, title: 'إيصال قبض #' + r.id, who: r.customers?.name, amt: Number(r.amount), by: r.profiles?.name }))
-  ].sort((a, b) => new Date(b.d) - new Date(a.d)).slice(0, 8);
-  $('#recent-tx').innerHTML = recent.length ? recent.map(r => txCardHTML(r)).join('')
-    : '<div class="empty">لا توجد حركات بعد.</div>';
+  renderFeedFilters();
+  renderFeed();
 
 
   // أعلى 5 مدينين
@@ -564,6 +579,55 @@ function renderStats(){
     </div>`).join('')
     : '<div class="empty">لا توجد ديون حالياً.</div>';
 }
+
+function renderFeedFilters(){
+  const sel = $('#feed-customer');
+  if (!sel) return;
+  const keep = sel.value;
+  sel.innerHTML = '<option value="">كل العملاء</option>' + C.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  sel.value = keep;
+}
+
+function feedRange(){
+  const days = Number($('#feed-days')?.value) || 0, selected = $('#feed-date')?.value;
+  let from = null, to = null;
+  if (selected){
+    from = new Date(selected + 'T00:00:00');
+    to = new Date(from); to.setDate(to.getDate() + 1);
+  } else if (days > 0){
+    from = new Date(); from.setHours(0, 0, 0, 0);
+    from.setDate(from.getDate() - (days - 1));
+  }
+  return { from, to };
+}
+
+function renderFeed(){
+  const box = $('#recent-tx');
+  if (!box) return;
+  const customer = $('#feed-customer')?.value || '', type = $('#feed-type')?.value || '';
+  const { from, to } = feedRange();
+  const inRange = d => { const date = new Date(d); return (!from || date >= from) && (!to || date < to); };
+  const rows = [
+    ...(type === 'payment' ? [] : I.map(r => ({
+      k: r.voided_at ? 'void' : (r.kind === 'disbursement' ? 'out' : 'inv'), kind: r.kind, d: r.created_at,
+      cid: r.customer_id, who: r.customers?.name, amt: Number(r.total), by: r.profiles?.name,
+      title: (r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة') + ' #' + r.id
+    }))),
+    ...(type === 'invoice' || type === 'disbursement' ? [] : Y.map(r => ({
+      k: 'pay', d: r.created_at, cid: r.customer_id, who: r.customers?.name,
+      amt: Number(r.amount), by: r.profiles?.name, title: 'إيصال قبض #' + r.id
+    })))
+  ].filter(r => (!customer || r.cid === customer) &&
+    (!type || (type === 'payment' ? r.k === 'pay' : type === 'invoice' ? r.kind === 'invoice' : type === 'disbursement' ? r.kind === 'disbursement' : true)) && inRange(r.d))
+   .sort((a, b) => new Date(b.d) - new Date(a.d));
+  const summary = $('#feed-summary');
+  if (summary) summary.textContent = `عدد الحركات المعروضة: ${rows.length} · ${from ? (to ? 'التاريخ المحدد' : 'من ' + from.toLocaleDateString('ar')) : 'كل التواريخ'}`;
+  box.innerHTML = rows.length ? rows.map(r => txCardHTML(r)).join('') : '<div class="empty">لا توجد حركات مطابقة.</div>';
+}
+
+['#feed-customer', '#feed-type'].forEach(s => $(s).onchange = renderFeed);
+$('#feed-days').onchange = () => { if ($('#feed-days').value !== '0') $('#feed-date').value = ''; renderFeed(); };
+$('#feed-date').onchange = () => { if ($('#feed-date').value) $('#feed-days').value = '0'; renderFeed(); };
 
 
 /* ---- اختيارات الفاتورة الجديدة ---- */
@@ -585,7 +649,9 @@ $('#inv-customer').onchange = hint;
 /* ---- قائمة العملاء ---- */
 function renderCustomersList(){
   $('#total-debt').textContent = fmt(C.reduce((s, c) => s + Math.max(Number(c.debt), 0), 0));
-  $('#customers').innerHTML = C.length ? C.map(c => {
+  const query = ($('#customer-search')?.value || '').trim().toLocaleLowerCase('ar');
+  const visible = query ? C.filter(c => String(c.name || '').toLocaleLowerCase('ar').includes(query)) : C;
+  $('#customers').innerHTML = visible.length ? visible.map(c => {
     const debt = Number(c.debt);
     return `<div class="cust-card" data-open-customer="${c.id}">
       <div class="top-row">
@@ -598,8 +664,10 @@ function renderCustomersList(){
       </div>
     </div>`;
   }).join('')
-    : '<div class="empty">لا يوجد عملاء. أضف أول عميل من شاشة «فاتورة جديدة».</div>';
+    : (query ? '<div class="empty">لا يوجد عميل مطابق للبحث.</div>' : '<div class="empty">لا يوجد عملاء. أضف أول عميل من شاشة «فاتورة جديدة».</div>');
 }
+
+$('#customer-search').oninput = renderCustomersList;
 
 
 /* ---- ملف العميل ---- */
