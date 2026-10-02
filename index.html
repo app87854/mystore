@@ -112,7 +112,7 @@
   .tx{border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;background:#fff;border-right-width:4px}
   .tx.inv{border-right-color:var(--bad)}
   .tx.pay{border-right-color:var(--ok);background:#f6fdf9}
-  .tx.out{border-right-color:#e9c27a;background:#fffbf2}
+  .tx.out,.tx.settlement{border-right-color:var(--ok);background:#f4fff8}
   .tx.void{opacity:.55;background:#f6f6f6;border-right-color:#999}
   .tx.edited{background:#fff8ed;border-right-color:#e98b18}
   #invoice-modal .card.edited{border-color:#e98b18;background:#fff8ed!important}
@@ -212,7 +212,7 @@
           <label>النوع<select id="feed-type">
             <option value="">كل الحركات</option>
             <option value="invoice">فواتير فقط</option>
-            <option value="disbursement">إيصالات صرف فقط</option>
+            <option value="disbursement">فواتير سداد فقط</option>
             <option value="payment">تسديدات فقط</option>
           </select></label>
           <label>الفترة<select id="feed-days">
@@ -235,12 +235,12 @@
     <!-- ==== شاشة 2: فاتورة جديدة ==== -->
     <section id="screen-new" class="screen hidden">
       <div class="card">
-        <h2>فاتورة جديدة</h2>
+  <h2>فاتورة جديدة</h2>
         <div class="stack">
           <label>النوع
             <select id="inv-kind">
-              <option value="invoice">فاتورة دين (زيادة رصيد)</option>
-              <option value="disbursement">إيصال صرف نقدي</option>
+            <option value="invoice">فاتورة دين (تزيد الدين)</option>
+            <option value="disbursement">فاتورة سداد (تنقص الدين)</option>
             </select>
           </label>
           <label>العميل<select id="inv-customer"></select></label>
@@ -525,14 +525,14 @@ function buildStatement(invRows, payRows){
       const voided = Boolean(r.voided_at);
       return {
         src: 'inv', id: r.id, d: r.created_at, voided, edited: Boolean(r.edited_at),
-        type: voided ? 'void' : (r.kind === 'disbursement' ? 'out' : 'inv'),
-        title: (r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة') + ' #' + r.id + (voided ? ' (ملغاة)' : ''),
+        type: voided ? 'void' : (r.kind === 'disbursement' ? 'settlement' : 'inv'),
+        title: (r.kind === 'disbursement' ? 'فاتورة سداد' : 'فاتورة دين') + ' #' + r.id + (voided ? ' (ملغاة)' : ''),
         note: voided && r.void_reason
           ? (r.note ? r.note + ' — سبب الإلغاء: ' + r.void_reason : 'سبب الإلغاء: ' + r.void_reason)
           : r.note,
         by: r.profiles?.name,
-        debit: voided ? 0 : Number(r.total) || 0,
-        credit: 0
+        debit: voided || r.kind === 'disbursement' ? 0 : Number(r.total) || 0,
+        credit: voided || r.kind !== 'disbursement' ? 0 : Number(r.total) || 0
       };
     }),
     ...(payRows || []).map(r => ({
@@ -593,7 +593,7 @@ function renderStats(){
     <div>صافي حركة اليوم<b class="${Number(state.today_debt) >= 0 ? 'debt' : 'ok'}">${fmt(state.today_debt)}</b></div>
     <div>تسديدات اليوم<b class="ok">${fmt(state.today_paid)}</b></div>
     <div>إجمالي الفواتير<b>${fmt(state.total_invoiced)}</b></div>
-    <div>إجمالي المصروف<b>${fmt(state.total_disbursed)}</b></div>
+    <div>إجمالي فواتير السداد<b>${fmt(state.total_disbursed)}</b></div>
   `;
 
 
@@ -642,9 +642,9 @@ function renderFeed(){
   const inRange = d => { const date = new Date(d); return (!from || date >= from) && (!to || date < to); };
   const rows = [
     ...(type === 'payment' ? [] : I.map(r => ({
-      src: 'inv', k: r.voided_at ? 'void' : (r.kind === 'disbursement' ? 'out' : 'inv'), kind: r.kind, id: r.id, edited: Boolean(r.edited_at), d: r.created_at,
+      src: 'inv', k: r.voided_at ? 'void' : (r.kind === 'disbursement' ? 'settlement' : 'inv'), kind: r.kind, id: r.id, edited: Boolean(r.edited_at), d: r.created_at,
       id: r.id, cid: r.customer_id, who: r.customers?.name, amt: Number(r.total), by: r.profiles?.name,
-      title: (r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة') + ' #' + r.id
+      title: (r.kind === 'disbursement' ? 'فاتورة سداد' : 'فاتورة دين') + ' #' + r.id
     }))),
     ...(type === 'invoice' || type === 'disbursement' ? [] : Y.map(r => ({
       src: 'pay', k: r.voided_at ? 'void' : 'pay', id: r.id, edited: Boolean(r.edited_at), d: r.created_at, cid: r.customer_id, who: r.customers?.name,
@@ -665,7 +665,7 @@ $('#feed-date').onchange = () => { if ($('#feed-date').value) $('#feed-days').va
 function openInvoice(id){
   const r = I.find(x => String(x.id) === String(id));
   if (!r) return toast('الفاتورة غير موجودة في القائمة الحالية', false);
-  const kind = r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة';
+  const kind = r.kind === 'disbursement' ? 'فاتورة سداد' : 'فاتورة دين';
   $('#movement-modal-title').textContent = kind;
   $('#invoice-detail').innerHTML = `
     <div class="invoice-meta">
@@ -767,7 +767,7 @@ function renderCustomerDetail(id){
   }
 
   $('#customer-tx').innerHTML = src.st.rows.length ? src.st.rows.map(r => {
-    const amt = r.type === 'pay'
+    const amt = r.type === 'pay' || r.type === 'settlement'
       ? `<span style="color:var(--ok)">− ${fmt(r.credit)}</span>`
       : r.voided ? '<span class="hint">ملغاة</span>' : `<span style="color:var(--bad)">+ ${fmt(r.debit)}</span>`;
     return `<div class="tx ${r.type === 'pay' ? 'pay' : r.voided ? 'void' : r.type} ${r.edited ? 'edited' : ''}">
@@ -775,8 +775,8 @@ function renderCustomerDetail(id){
       <div class="t2"><span>${esc(dt(r.d))}</span><span>${esc(r.by || '—')}</span></div>
       ${r.note ? `<div class="note">${esc(r.note)}</div>` : ''}
       <div class="run"><span>الرصيد بعد الحركة</span><b>${fmt(r.balance)}</b></div>
-      ${(r.type === 'pay' || r.type === 'out' || (r.src === 'inv' && !r.voided) || (r.src === 'pay' && !r.voided)) ? `<div class="actions">
-        ${r.type === 'pay' || r.type === 'out' ? `<button class="btn alt sm" data-receipt="${r.src}:${r.id}">طباعة الإيصال</button>` : ''}
+      ${(r.type === 'pay' || r.type === 'settlement' || (r.src === 'inv' && !r.voided) || (r.src === 'pay' && !r.voided)) ? `<div class="actions">
+        ${r.type === 'pay' || r.type === 'settlement' ? `<button class="btn alt sm" data-receipt="${r.src}:${r.id}">طباعة الإيصال</button>` : ''}
         ${r.src === 'pay' && !r.voided && admin ? `<button class="btn alt sm" data-edit-payment="${r.id}">تعديل التسديد</button>` : ''}
         ${r.src === 'pay' && !r.voided ? `<button class="btn del sm" data-void-payment="${r.id}">إلغاء التسديد</button>` : ''}
         ${r.src === 'inv' && r.edited ? '<span class="tag">معدلة</span>' : ''}
@@ -870,14 +870,14 @@ window.addEventListener('afterprint', () => {
 });
 
 
-/* ---- إيصال قبض / إيصال صرف (من بيانات الكشف المحمّل، دون جلب إضافي) ---- */
+/* ---- إيصال قبض / فاتورة سداد (من بيانات الكشف المحمّل، دون جلب إضافي) ---- */
 function printReceipt(src, id){
   const cid = String(detailCustomerId);
   const c = C.find(x => String(x.id) === cid);
   const r = TX[cid]?.st.rows.find(x => x.src === src && String(x.id) === String(id));
   if (!c || !r || r.voided) return toast('تعذّر تجهيز الإيصال', false);
-  const isIn = r.src === 'pay';
-  const title = isIn ? 'إيصال قبض' : 'إيصال صرف';
+  const isIn = r.src === 'pay' || r.type === 'settlement';
+  const title = r.type === 'settlement' ? 'فاتورة سداد' : 'إيصال قبض';
   const area = $('#print-area');
   window.__statementPreviousTitle = document.title;
   document.title = `${c.name} - ${title} ${r.id}`;
@@ -892,7 +892,7 @@ function printReceipt(src, id){
       ${r.note ? `<div style="grid-column:1/-1;white-space:pre-wrap">البيان: ${esc(r.note)}</div>` : ''}
     </div>
     <div class="print-total"><div class="t">المبلغ</div><div class="v">${fmt(isIn ? r.credit : r.debit)}</div></div>
-    <p>${isIn ? 'استُلم من العميل المبلغ المذكور أعلاه.' : 'صُرف للعميل المبلغ المذكور أعلاه نقداً، ويُسجَّل ديناً عليه.'}</p>
+    <p>${isIn ? 'خُصم المبلغ المذكور أعلاه من دين العميل.' : 'أضيف المبلغ المذكور أعلاه إلى دين العميل.'}</p>
     <div class="print-sign"><img class="print-stamp" src="stamp.png" alt="ختم المحل"><span>توقيع العميل</span></div>`;
   const img = area.querySelector('.print-stamp');
   let fired = false;
@@ -903,8 +903,8 @@ function printReceipt(src, id){
 
 /* ---- بطاقة حركة مختصرة (للإحصائيات) ---- */
 function txCardHTML(r){
-  const amtClass = r.k === 'pay' ? 'style="color:var(--ok)"' : r.k === 'void' ? '' : 'style="color:var(--bad)"';
-  const sign = r.k === 'pay' ? '− ' : r.k === 'void' ? '' : '+ ';
+  const amtClass = r.k === 'pay' || r.k === 'settlement' ? 'style="color:var(--ok)"' : r.k === 'void' ? '' : 'style="color:var(--bad)"';
+  const sign = r.k === 'pay' || r.k === 'settlement' ? '− ' : r.k === 'void' ? '' : '+ ';
   const clickable = r.id != null;
   const seller = r.k !== 'pay' ? ` · البائع: ${esc(r.by || '—')}` : '';
   const target = r.src === 'pay' ? 'data-open-payment' : 'data-open-invoice';
@@ -1014,7 +1014,7 @@ $('#btn-save').onclick = async () => {
   });
   b.disabled = false;
   if (error) return toast(error.message, false);
-  toast((kind === 'disbursement' ? 'تم حفظ إيصال الصرف رقم ' : 'تم حفظ الفاتورة رقم ') + data);
+  toast((kind === 'disbursement' ? 'تم حفظ فاتورة السداد رقم ' : 'تم حفظ فاتورة الدين رقم ') + data);
   $('#inv-amount').value = ''; $('#inv-note').value = '';
   load();
 };
