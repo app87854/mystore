@@ -381,10 +381,28 @@ sb.auth.onAuthStateChange((_e, session) => {
 
 
 /* ============ التحميل والمزامنة ============ */
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function load(){
   if (loading) { dirty = true; return; }
   loading = true;
-  try { await loadNow(); } finally { loading = false; if (dirty) { dirty = false; load(); } }
+  let lastError = null;
+  try {
+    // أخطاء fetch العابرة شائعة على الهاتف عند تبدّل الشبكة؛ أعد المحاولة قبل التنبيه.
+    for (let attempt = 0; attempt < 3; attempt++){
+      try {
+        await loadNow();
+        lastError = null;
+        break;
+      } catch (e){
+        lastError = e;
+        if (attempt < 2) await wait(500 * (attempt + 1));
+      }
+    }
+    if (lastError) toast('تعذّر الاتصال بالخادم. تحقق من الإنترنت ثم أعد المحاولة', false);
+  } finally {
+    loading = false;
+    if (dirty) { dirty = false; load(); }
+  }
 }
 async function loadNow(){
   const { data:{ session } } = await sb.auth.getSession();
@@ -397,7 +415,7 @@ async function loadNow(){
     sb.from('store_stats').select('*').single()
   ]);
   const err = c.error || i.error || y.error || me.error || s.error;
-  if (err) return toast('خطأ في التحميل: ' + err.message, false);
+  if (err) throw err;
   C = [...(c.data || [])].sort((a, b) => coll.compare(a.name || '', b.name || ''));
   I = i.data || []; Y = y.data || []; state = s.data || {};
   admin = me.data?.role === 'admin';
