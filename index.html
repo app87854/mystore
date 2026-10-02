@@ -658,10 +658,10 @@ function openInvoice(id){
       <div>العميل: <b>${esc(r.customers?.name || '—')}</b></div><div>البائع: <b>${esc(r.profiles?.name || '—')}</b></div>
       <div>التاريخ: <b>${esc(dt(r.created_at))}</b></div><div>الحالة: <b>${r.voided_at ? 'ملغاة' : 'نشطة'}</b></div>
     </div>
-    <div class="card" style="margin:0 0 10px;background:var(--soft)"><div class="meta">القيمة</div><div style="font-size:28px;font-weight:800;color:var(--bad)">${fmt(r.total)}</div></div>
-    <div class="card" style="margin:0 0 14px;background:var(--soft)"><div class="meta">الملاحظة</div><div style="white-space:pre-wrap">${esc(r.note || '—')}</div>
+    ${admin && !r.voided_at ? `<div class="card" style="margin:0 0 10px;background:var(--soft)"><label>قيمة الفاتورة<input id="edit-invoice-amount" type="number" min="0.01" step="0.01" inputmode="decimal" value="${esc(r.total)}"></label></div>` : `<div class="card" style="margin:0 0 10px;background:var(--soft)"><div class="meta">القيمة</div><div style="font-size:28px;font-weight:800;color:var(--bad)">${fmt(r.total)}</div></div>`}
+    <div class="card" style="margin:0 0 14px;background:var(--soft)">${admin && !r.voided_at ? `<label>ملاحظة الفاتورة<textarea id="edit-invoice-note">${esc(r.note || '')}</textarea></label>` : `<div class="meta">الملاحظة</div><div style="white-space:pre-wrap">${esc(r.note || '—')}</div>`}
       ${r.voided_at && r.void_reason ? `<div class="meta" style="margin-top:8px">سبب الإلغاء: ${esc(r.void_reason)}</div>` : ''}</div>
-    ${!r.voided_at ? `<div class="row2">${admin ? `<button class="btn" data-edit-invoice="${r.id}">تعديل الفاتورة</button>` : '<span></span>'}<button class="btn del" data-void="${r.id}">إلغاء الفاتورة</button></div>` : ''}`;
+    ${!r.voided_at ? `<div class="row2">${admin ? `<button class="btn" data-save-invoice="${r.id}">حفظ التعديل</button>` : '<span></span>'}<button class="btn del" data-void="${r.id}">إلغاء الفاتورة</button></div>` : ''}`;
   $('#invoice-modal').classList.remove('hidden');
 }
 function closeInvoice(){ $('#invoice-modal').classList.add('hidden'); }
@@ -920,11 +920,10 @@ document.addEventListener('click', e => {
     const why = prompt(`إلغاء الفاتورة #${v}\nسبب الإلغاء (اختياري):`); if (why === null) return;
     return run(sb.rpc('void_invoice', { p_id: Number(v), p_reason: why.trim() || null }), 'تم إلغاء الفاتورة', closeInvoice);
   }
-  if ((v = g('edit-invoice'))) {
-    const r = I.find(x => String(x.id) === String(v)); if (!r) return;
-    const amount = prompt('قيمة الفاتورة:', r.total); if (amount === null) return;
-    const m = num(amount); if (!(m > 0)) return toast('القيمة غير صحيحة', false);
-    const note = prompt('ملاحظة الفاتورة:', r.note || ''); if (note === null) return;
+  if ((v = g('save-invoice'))) {
+    const m = num($('#edit-invoice-amount')?.value);
+    if (!(m > 0)) return toast('القيمة غير صحيحة', false);
+    const note = $('#edit-invoice-note')?.value || '';
     return run(sb.rpc('update_debt_invoice', { p_id: Number(v), p_amount: m, p_note: note.trim() || null }), 'تم تعديل الفاتورة', closeInvoice);
   }
   if ((v = g('edit-user'))) {
