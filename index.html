@@ -114,6 +114,8 @@
   .tx.pay{border-right-color:var(--ok);background:#f6fdf9}
   .tx.out{border-right-color:#e9c27a;background:#fffbf2}
   .tx.void{opacity:.55;background:#f6f6f6;border-right-color:#999}
+  .tx.edited{background:#fff8ed;border-right-color:#e98b18}
+  #invoice-modal .card.edited{border-color:#e98b18;background:#fff8ed!important}
   .tx .t1{display:flex;justify-content:space-between;gap:8px;font-weight:700;font-size:14px}
   .tx .t2{display:flex;justify-content:space-between;color:var(--mute);font-size:12px}
   .tx .note{font-size:13px;background:#f8fafc;padding:6px 8px;border-radius:6px;white-space:pre-wrap;word-break:break-word}
@@ -316,7 +318,7 @@
 
 <div id="invoice-modal" class="hidden" role="dialog" aria-modal="true">
   <div class="card">
-    <div class="modal-head"><h2>تفاصيل الفاتورة</h2><button class="btn alt sm" data-close-invoice>إغلاق</button></div>
+    <div class="modal-head"><h2 id="movement-modal-title">تفاصيل الحركة</h2><button class="btn alt sm" data-close-invoice>إغلاق</button></div>
     <div id="invoice-detail"></div>
   </div>
 </div>
@@ -353,8 +355,8 @@ let screen = 'stats';
 let detailCustomerId = null;
 let editingUserId = null;
 const TX = {};            // كشف كامل لكل عميل (يُجلب منفردة حتى لا يُقتطع)
-const TX_INV = 'id,total,note,kind,created_at,voided_at,void_reason,profiles(name)';
-const TX_PAY = 'id,amount,note,created_at,profiles(name)';
+const TX_INV = 'id,total,note,kind,created_at,voided_at,void_reason,edited_at,profiles!invoices_created_by_fkey(name)';
+const TX_PAY = 'id,amount,note,created_at,voided_at,void_reason,edited_at,profiles!payments_created_by_fkey(name)';
 
 
 function toast(msg, ok = true){
@@ -458,8 +460,8 @@ async function loadNow(){
   if (!session) return;
   const [c, i, y, me, s] = await Promise.all([
     sb.from('customer_balances').select('*').order('name'),
-    sb.from('invoices').select('id,total,note,kind,created_at,voided_at,void_reason,customer_id,customers(name),profiles(name)').order('id',{ascending:false}).limit(200),
-    sb.from('payments').select('id,amount,note,created_at,customer_id,customers(name),profiles(name)').order('id',{ascending:false}).limit(200),
+    sb.from('invoices').select('id,total,note,kind,created_at,voided_at,void_reason,edited_at,customer_id,customers(name),profiles!invoices_created_by_fkey(name)').order('id',{ascending:false}).limit(200),
+    sb.from('payments').select('id,amount,note,created_at,voided_at,void_reason,edited_at,customer_id,customers(name),profiles!payments_created_by_fkey(name)').order('id',{ascending:false}).limit(200),
     sb.from('profiles').select('name,role').eq('id', session.user.id).maybeSingle(),
     sb.from('store_stats').select('*').single()
   ]);
@@ -522,7 +524,7 @@ function buildStatement(invRows, payRows){
     ...(invRows || []).map(r => {
       const voided = Boolean(r.voided_at);
       return {
-        src: 'inv', id: r.id, d: r.created_at, voided,
+        src: 'inv', id: r.id, d: r.created_at, voided, edited: Boolean(r.edited_at),
         type: voided ? 'void' : (r.kind === 'disbursement' ? 'out' : 'inv'),
         title: (r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة') + ' #' + r.id + (voided ? ' (ملغاة)' : ''),
         note: voided && r.void_reason
@@ -534,9 +536,11 @@ function buildStatement(invRows, payRows){
       };
     }),
     ...(payRows || []).map(r => ({
-      src: 'pay', id: r.id, d: r.created_at, voided: false, type: 'pay',
-      title: 'إيصال قبض #' + r.id, note: r.note, by: r.profiles?.name,
-      debit: 0, credit: Number(r.amount) || 0
+      src: 'pay', id: r.id, d: r.created_at, voided: Boolean(r.voided_at), edited: Boolean(r.edited_at),
+      type: r.voided_at ? 'void' : 'pay',
+      title: 'إيصال قبض #' + r.id + (r.voided_at ? ' (ملغى)' : ''),
+      note: r.voided_at && r.void_reason ? (r.note ? r.note + ' — سبب الإلغاء: ' + r.void_reason : 'سبب الإلغاء: ' + r.void_reason) : r.note,
+      by: r.profiles?.name, debit: 0, credit: r.voided_at ? 0 : (Number(r.amount) || 0)
     }))
   ].sort(cmpStatement);
 
@@ -583,7 +587,7 @@ function render(){
 /* ---- الإحصائيات ---- */
 function renderStats(){
   $('#kpi').innerHTML = `
-    <div class="wide">إجمالي الديون<b class="debt">${fmt(state.total_debt)}</b></div>
+    <div class="wide">إجمالي الديون الصافي<b class="${Number(state.total_debt) >= 0 ? 'debt' : 'ok'}">${fmt(state.total_debt)}</b></div>
     <div>عدد العملاء<b>${state.customers_count || 0}</b></div>
     <div>إجمالي التسديدات<b class="ok">${fmt(state.total_paid)}</b></div>
     <div>صافي حركة اليوم<b class="${Number(state.today_debt) >= 0 ? 'debt' : 'ok'}">${fmt(state.today_debt)}</b></div>
@@ -638,16 +642,16 @@ function renderFeed(){
   const inRange = d => { const date = new Date(d); return (!from || date >= from) && (!to || date < to); };
   const rows = [
     ...(type === 'payment' ? [] : I.map(r => ({
-      k: r.voided_at ? 'void' : (r.kind === 'disbursement' ? 'out' : 'inv'), kind: r.kind, d: r.created_at,
+      src: 'inv', k: r.voided_at ? 'void' : (r.kind === 'disbursement' ? 'out' : 'inv'), kind: r.kind, id: r.id, edited: Boolean(r.edited_at), d: r.created_at,
       id: r.id, cid: r.customer_id, who: r.customers?.name, amt: Number(r.total), by: r.profiles?.name,
       title: (r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة') + ' #' + r.id
     }))),
     ...(type === 'invoice' || type === 'disbursement' ? [] : Y.map(r => ({
-      k: 'pay', d: r.created_at, cid: r.customer_id, who: r.customers?.name,
-      amt: Number(r.amount), by: r.profiles?.name, title: 'إيصال قبض #' + r.id
+      src: 'pay', k: r.voided_at ? 'void' : 'pay', id: r.id, edited: Boolean(r.edited_at), d: r.created_at, cid: r.customer_id, who: r.customers?.name,
+      amt: Number(r.amount), by: r.profiles?.name, title: 'إيصال قبض #' + r.id + (r.voided_at ? ' (ملغى)' : '')
     })))
   ].filter(r => (!customer || r.cid === customer) &&
-    (!type || (type === 'payment' ? r.k === 'pay' : type === 'invoice' ? r.kind === 'invoice' : type === 'disbursement' ? r.kind === 'disbursement' : true)) && inRange(r.d))
+    (!type || (type === 'payment' ? r.src === 'pay' : type === 'invoice' ? r.kind === 'invoice' : type === 'disbursement' ? r.kind === 'disbursement' : true)) && inRange(r.d))
    .sort((a, b) => new Date(b.d) - new Date(a.d));
   const summary = $('#feed-summary');
   if (summary) summary.textContent = `عدد الحركات المعروضة: ${rows.length} · ${from ? (to ? 'التاريخ المحدد' : 'من ' + from.toLocaleDateString('ar')) : 'كل التواريخ'}`;
@@ -662,16 +666,32 @@ function openInvoice(id){
   const r = I.find(x => String(x.id) === String(id));
   if (!r) return toast('الفاتورة غير موجودة في القائمة الحالية', false);
   const kind = r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة';
+  $('#movement-modal-title').textContent = kind;
   $('#invoice-detail').innerHTML = `
     <div class="invoice-meta">
       <div>الرقم: <b>${r.id}</b></div><div>النوع: <b>${kind}</b></div>
       <div>العميل: <b>${esc(r.customers?.name || '—')}</b></div><div>البائع: <b>${esc(r.profiles?.name || '—')}</b></div>
-      <div>التاريخ: <b>${esc(dt(r.created_at))}</b></div><div>الحالة: <b>${r.voided_at ? 'ملغاة' : 'نشطة'}</b></div>
+      <div>التاريخ: <b>${esc(dt(r.created_at))}</b></div><div>الحالة: <b>${r.voided_at ? 'ملغاة' : 'نشطة'}${r.edited_at ? ' · معدلة' : ''}</b></div>
     </div>
-    ${admin && !r.voided_at ? `<div class="card" style="margin:0 0 10px;background:var(--soft)"><label>قيمة الفاتورة<input id="edit-invoice-amount" type="number" min="0.01" step="0.01" inputmode="decimal" value="${esc(r.total)}"></label></div>` : `<div class="card" style="margin:0 0 10px;background:var(--soft)"><div class="meta">القيمة</div><div style="font-size:28px;font-weight:800;color:var(--bad)">${fmt(r.total)}</div></div>`}
+    ${admin && !r.voided_at ? `<div class="card ${r.edited_at ? 'edited' : ''}" style="margin:0 0 10px;background:var(--soft)"><label>قيمة الفاتورة<input id="edit-invoice-amount" type="number" min="0.01" step="0.01" inputmode="decimal" value="${esc(r.total)}"></label></div>` : `<div class="card ${r.edited_at ? 'edited' : ''}" style="margin:0 0 10px;background:var(--soft)"><div class="meta">القيمة</div><div style="font-size:28px;font-weight:800;color:var(--bad)">${fmt(r.total)}</div></div>`}
     <div class="card" style="margin:0 0 14px;background:var(--soft)">${admin && !r.voided_at ? `<label>ملاحظة الفاتورة<textarea id="edit-invoice-note">${esc(r.note || '')}</textarea></label>` : `<div class="meta">الملاحظة</div><div style="white-space:pre-wrap">${esc(r.note || '—')}</div>`}
       ${r.voided_at && r.void_reason ? `<div class="meta" style="margin-top:8px">سبب الإلغاء: ${esc(r.void_reason)}</div>` : ''}</div>
     ${!r.voided_at ? `<div class="row2">${admin ? `<button class="btn" data-save-invoice="${r.id}">حفظ التعديل</button>` : '<span></span>'}<button class="btn del" data-void="${r.id}">إلغاء الفاتورة</button></div>` : ''}`;
+  $('#invoice-modal').classList.remove('hidden');
+}
+function openPayment(id){
+  const r = Y.find(x => String(x.id) === String(id));
+  if (!r) return toast('التسديد غير موجود في القائمة الحالية', false);
+  $('#movement-modal-title').textContent = 'إيصال قبض';
+  $('#invoice-detail').innerHTML = `
+    <div class="invoice-meta">
+      <div>الرقم: <b>${r.id}</b></div><div>النوع: <b>تسديد</b></div>
+      <div>العميل: <b>${esc(r.customers?.name || '—')}</b></div><div>البائع: <b>${esc(r.profiles?.name || '—')}</b></div>
+      <div>التاريخ: <b>${esc(dt(r.created_at))}</b></div><div>الحالة: <b>${r.voided_at ? 'ملغى' : 'نشط'}${r.edited_at ? ' · معدل' : ''}</b></div>
+    </div>
+    ${admin && !r.voided_at ? `<div class="card ${r.edited_at ? 'edited' : ''}" style="margin:0 0 10px;background:var(--soft)"><label>قيمة التسديد<input id="edit-payment-amount" type="number" min="0.01" step="0.01" inputmode="decimal" value="${esc(r.amount)}"></label></div>` : `<div class="card ${r.edited_at ? 'edited' : ''}" style="margin:0 0 10px;background:var(--soft)"><div class="meta">القيمة</div><div style="font-size:28px;font-weight:800;color:var(--ok)">${fmt(r.amount)}</div></div>`}
+    <div class="card" style="margin:0 0 14px;background:var(--soft)">${admin && !r.voided_at ? `<label>ملاحظة التسديد<textarea id="edit-payment-note">${esc(r.note || '')}</textarea></label>` : `<div class="meta">الملاحظة</div><div style="white-space:pre-wrap">${esc(r.note || '—')}</div>`}${r.voided_at && r.void_reason ? `<div class="meta" style="margin-top:8px">سبب الإلغاء: ${esc(r.void_reason)}</div>` : ''}</div>
+    ${!r.voided_at ? `<div class="row2">${admin ? `<button class="btn" data-save-payment="${r.id}">حفظ التعديل</button>` : '<span></span>'}<button class="btn del" data-void-payment="${r.id}">إلغاء التسديد</button></div>` : ''}`;
   $('#invoice-modal').classList.remove('hidden');
 }
 function closeInvoice(){ $('#invoice-modal').classList.add('hidden'); }
@@ -695,7 +715,8 @@ $('#inv-customer').onchange = hint;
 
 /* ---- قائمة العملاء ---- */
 function renderCustomersList(){
-  $('#total-debt').textContent = fmt(C.reduce((s, c) => s + Math.max(Number(c.debt), 0), 0));
+  // الرصيد السالب يعني فائضاً للعميل، لذلك يُحسب ضمن الإجمالي الصافي.
+  $('#total-debt').textContent = fmt(C.reduce((s, c) => s + Number(c.debt || 0), 0));
   const query = ($('#customer-search')?.value || '').trim().toLocaleLowerCase('ar');
   const visible = query ? C.filter(c => String(c.name || '').toLocaleLowerCase('ar').includes(query)) : C;
   $('#customers').innerHTML = visible.length ? visible.map(c => {
@@ -749,13 +770,16 @@ function renderCustomerDetail(id){
     const amt = r.type === 'pay'
       ? `<span style="color:var(--ok)">− ${fmt(r.credit)}</span>`
       : r.voided ? '<span class="hint">ملغاة</span>' : `<span style="color:var(--bad)">+ ${fmt(r.debit)}</span>`;
-    return `<div class="tx ${r.type === 'pay' ? 'pay' : r.voided ? 'void' : r.type}">
+    return `<div class="tx ${r.type === 'pay' ? 'pay' : r.voided ? 'void' : r.type} ${r.edited ? 'edited' : ''}">
       <div class="t1"><span>${esc(r.title)}</span><span>${amt}</span></div>
       <div class="t2"><span>${esc(dt(r.d))}</span><span>${esc(r.by || '—')}</span></div>
       ${r.note ? `<div class="note">${esc(r.note)}</div>` : ''}
       <div class="run"><span>الرصيد بعد الحركة</span><b>${fmt(r.balance)}</b></div>
-      ${(r.type === 'pay' || r.type === 'out' || (r.src === 'inv' && !r.voided)) ? `<div class="actions">
+      ${(r.type === 'pay' || r.type === 'out' || (r.src === 'inv' && !r.voided) || (r.src === 'pay' && !r.voided)) ? `<div class="actions">
         ${r.type === 'pay' || r.type === 'out' ? `<button class="btn alt sm" data-receipt="${r.src}:${r.id}">طباعة الإيصال</button>` : ''}
+        ${r.src === 'pay' && !r.voided && admin ? `<button class="btn alt sm" data-edit-payment="${r.id}">تعديل التسديد</button>` : ''}
+        ${r.src === 'pay' && !r.voided ? `<button class="btn del sm" data-void-payment="${r.id}">إلغاء التسديد</button>` : ''}
+        ${r.src === 'inv' && r.edited ? '<span class="tag">معدلة</span>' : ''}
         ${r.src === 'inv' && !r.voided ? `<button class="btn del sm" data-void="${r.id}">إلغاء الفاتورة</button>` : ''}
       </div>` : ''}
     </div>`;
@@ -881,9 +905,10 @@ function printReceipt(src, id){
 function txCardHTML(r){
   const amtClass = r.k === 'pay' ? 'style="color:var(--ok)"' : r.k === 'void' ? '' : 'style="color:var(--bad)"';
   const sign = r.k === 'pay' ? '− ' : r.k === 'void' ? '' : '+ ';
-  const clickable = r.k !== 'pay' && r.id != null;
+  const clickable = r.id != null;
   const seller = r.k !== 'pay' ? ` · البائع: ${esc(r.by || '—')}` : '';
-  return `<div class="tx ${r.k}" ${clickable ? `data-open-invoice="${r.id}" style="cursor:pointer"` : ''}>
+  const target = r.src === 'pay' ? 'data-open-payment' : 'data-open-invoice';
+  return `<div class="tx ${r.k} ${r.edited ? 'edited' : ''}" ${clickable ? `${target}="${r.id}" style="cursor:pointer"` : ''}>
     <div class="t1"><span>${esc(r.who || '—')}</span><span ${amtClass}>${sign}${fmt(r.amt)}</span></div>
     <div class="t2"><span>${esc(r.title)}${seller}</span><span>${esc(dt(r.d))}</span></div>
   </div>`;
@@ -895,6 +920,8 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-close-invoice]') || e.target === $('#invoice-modal')) return closeInvoice();
   const invoiceCard = e.target.closest('[data-open-invoice]');
   if (invoiceCard && !e.target.closest('button')) return openInvoice(invoiceCard.dataset.openInvoice);
+  const paymentCard = e.target.closest('[data-open-payment]');
+  if (paymentCard && !e.target.closest('button')) return openPayment(paymentCard.dataset.openPayment);
   const open = e.target.closest('[data-open-customer]');
   if (open && !e.target.closest('button')) return openCustomer(open.dataset.openCustomer);
 
@@ -928,13 +955,28 @@ document.addEventListener('click', e => {
   }
   if ((v = g('void'))) {
     const why = prompt(`إلغاء الفاتورة #${v}\nسبب الإلغاء (اختياري):`); if (why === null) return;
+    if (!confirm(`تأكيد إلغاء الفاتورة #${v}؟\nسيعاد حساب رصيد العميل بناءً على ذلك.`)) return;
     return run(sb.rpc('void_invoice', { p_id: Number(v), p_reason: why.trim() || null }), 'تم إلغاء الفاتورة', closeInvoice);
   }
   if ((v = g('save-invoice'))) {
     const m = num($('#edit-invoice-amount')?.value);
     if (!(m > 0)) return toast('القيمة غير صحيحة', false);
     const note = $('#edit-invoice-note')?.value || '';
+    if (!confirm(`تأكيد حفظ تعديل الفاتورة #${v}؟`)) return;
     return run(sb.rpc('update_debt_invoice', { p_id: Number(v), p_amount: m, p_note: note.trim() || null }), 'تم تعديل الفاتورة', closeInvoice);
+  }
+  if ((v = g('edit-payment'))) return openPayment(v);
+  if ((v = g('void-payment'))) {
+    const why = prompt(`إلغاء التسديد #${v}\nسبب الإلغاء (اختياري):`); if (why === null) return;
+    if (!confirm(`تأكيد إلغاء التسديد #${v}؟\nسيعاد حساب رصيد العميل بناءً على ذلك.`)) return;
+    return run(sb.rpc('void_payment', { p_id: Number(v), p_reason: why.trim() || null }), 'تم إلغاء التسديد', closeInvoice);
+  }
+  if ((v = g('save-payment'))) {
+    const m = num($('#edit-payment-amount')?.value);
+    if (!(m > 0)) return toast('القيمة غير صحيحة', false);
+    const note = $('#edit-payment-note')?.value || '';
+    if (!confirm(`تأكيد حفظ تعديل التسديد #${v}؟`)) return;
+    return run(sb.rpc('update_payment', { p_id: Number(v), p_amount: m, p_note: note.trim() || null }), 'تم تعديل التسديد', closeInvoice);
   }
   if ((v = g('edit-user'))) {
     const u = U.find(x => String(x.id) === String(v)); if (!u) return;
