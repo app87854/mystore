@@ -62,6 +62,11 @@
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .stack{display:flex;flex-direction:column;gap:10px}
   .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+  #invoice-modal{position:fixed;inset:0;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:16px;z-index:60}
+  #invoice-modal.hidden{display:none}
+  #invoice-modal .card{width:min(430px,100%);max-height:90vh;overflow:auto;margin:0}
+  #invoice-modal .modal-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  #invoice-modal .invoice-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0;color:var(--mute);font-size:14px}
   label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--mute)}
 
 
@@ -302,6 +307,13 @@
 
 
 <div id="toast"></div>
+
+<div id="invoice-modal" class="hidden" role="dialog" aria-modal="true">
+  <div class="card">
+    <div class="modal-head"><h2>تفاصيل الفاتورة</h2><button class="btn alt sm" data-close-invoice>إغلاق</button></div>
+    <div id="invoice-detail"></div>
+  </div>
+</div>
 
 <div id="print-area" class="print-only"></div>
 
@@ -636,6 +648,24 @@ function renderFeed(){
 $('#feed-days').onchange = () => { if ($('#feed-days').value !== '0') $('#feed-date').value = ''; renderFeed(); };
 $('#feed-date').onchange = () => { if ($('#feed-date').value) $('#feed-days').value = '0'; renderFeed(); };
 
+function openInvoice(id){
+  const r = I.find(x => String(x.id) === String(id));
+  if (!r) return toast('الفاتورة غير موجودة في القائمة الحالية', false);
+  const kind = r.kind === 'disbursement' ? 'إيصال صرف' : 'فاتورة';
+  $('#invoice-detail').innerHTML = `
+    <div class="invoice-meta">
+      <div>الرقم: <b>${r.id}</b></div><div>النوع: <b>${kind}</b></div>
+      <div>العميل: <b>${esc(r.customers?.name || '—')}</b></div><div>البائع: <b>${esc(r.profiles?.name || '—')}</b></div>
+      <div>التاريخ: <b>${esc(dt(r.created_at))}</b></div><div>الحالة: <b>${r.voided_at ? 'ملغاة' : 'نشطة'}</b></div>
+    </div>
+    <div class="card" style="margin:0 0 10px;background:var(--soft)"><div class="meta">القيمة</div><div style="font-size:28px;font-weight:800;color:var(--bad)">${fmt(r.total)}</div></div>
+    <div class="card" style="margin:0 0 14px;background:var(--soft)"><div class="meta">الملاحظة</div><div style="white-space:pre-wrap">${esc(r.note || '—')}</div>
+      ${r.voided_at && r.void_reason ? `<div class="meta" style="margin-top:8px">سبب الإلغاء: ${esc(r.void_reason)}</div>` : ''}</div>
+    ${!r.voided_at ? `<div class="row2">${admin ? `<button class="btn" data-edit-invoice="${r.id}">تعديل الفاتورة</button>` : '<span></span>'}<button class="btn del" data-void="${r.id}">إلغاء الفاتورة</button></div>` : ''}`;
+  $('#invoice-modal').classList.remove('hidden');
+}
+function closeInvoice(){ $('#invoice-modal').classList.add('hidden'); }
+
 
 /* ---- اختيارات الفاتورة الجديدة ---- */
 function renderNewInvoiceSelects(){
@@ -841,15 +871,20 @@ function printReceipt(src, id){
 function txCardHTML(r){
   const amtClass = r.k === 'pay' ? 'style="color:var(--ok)"' : r.k === 'void' ? '' : 'style="color:var(--bad)"';
   const sign = r.k === 'pay' ? '− ' : r.k === 'void' ? '' : '+ ';
-  return `<div class="tx ${r.k}">
+  const clickable = r.k !== 'pay' && r.id != null;
+  const seller = r.k !== 'pay' ? ` · البائع: ${esc(r.by || '—')}` : '';
+  return `<div class="tx ${r.k}" ${clickable ? `data-open-invoice="${r.id}" style="cursor:pointer"` : ''}>
     <div class="t1"><span>${esc(r.who || '—')}</span><span ${amtClass}>${sign}${fmt(r.amt)}</span></div>
-    <div class="t2"><span>${esc(r.title)}</span><span>${esc(dt(r.d))}</span></div>
+    <div class="t2"><span>${esc(r.title)}${seller}</span><span>${esc(dt(r.d))}</span></div>
   </div>`;
 }
 
 
 /* ============ النقر على البطاقات والأزرار ============ */
 document.addEventListener('click', e => {
+  if (e.target.closest('[data-close-invoice]') || e.target === $('#invoice-modal')) return closeInvoice();
+  const invoiceCard = e.target.closest('[data-open-invoice]');
+  if (invoiceCard && !e.target.closest('button')) return openInvoice(invoiceCard.dataset.openInvoice);
   const open = e.target.closest('[data-open-customer]');
   if (open && !e.target.closest('button')) return openCustomer(open.dataset.openCustomer);
 
@@ -883,7 +918,14 @@ document.addEventListener('click', e => {
   }
   if ((v = g('void'))) {
     const why = prompt(`إلغاء الفاتورة #${v}\nسبب الإلغاء (اختياري):`); if (why === null) return;
-    return run(sb.rpc('void_invoice', { p_id: Number(v), p_reason: why.trim() || null }), 'تم إلغاء الفاتورة');
+    return run(sb.rpc('void_invoice', { p_id: Number(v), p_reason: why.trim() || null }), 'تم إلغاء الفاتورة', closeInvoice);
+  }
+  if ((v = g('edit-invoice'))) {
+    const r = I.find(x => String(x.id) === String(v)); if (!r) return;
+    const amount = prompt('قيمة الفاتورة:', r.total); if (amount === null) return;
+    const m = num(amount); if (!(m > 0)) return toast('القيمة غير صحيحة', false);
+    const note = prompt('ملاحظة الفاتورة:', r.note || ''); if (note === null) return;
+    return run(sb.rpc('update_debt_invoice', { p_id: Number(v), p_amount: m, p_note: note.trim() || null }), 'تم تعديل الفاتورة', closeInvoice);
   }
   if ((v = g('edit-user'))) {
     const u = U.find(x => String(x.id) === String(v)); if (!u) return;
