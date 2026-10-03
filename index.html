@@ -48,11 +48,13 @@
   #bottom-nav.hidden{display:none}
   #bottom-nav button{
     flex:1;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:2px;font-size:11px;color:var(--mute);padding:6px 2px
+    gap:3px;font-size:12px;color:var(--mute);padding:6px 2px;-webkit-tap-highlight-color:transparent
   }
-  #bottom-nav button .ico{font-size:22px;line-height:1}
+  #bottom-nav button .ico{width:58px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:15px;transition:background .15s}
+  #bottom-nav button .ico svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
   #bottom-nav button.on{color:var(--main);font-weight:700}
-  #bottom-nav button.on .ico{transform:scale(1.1)}
+  #bottom-nav button.on .ico{background:rgba(15,92,77,.13)}
+  #bottom-nav button.on .ico svg{stroke-width:2.2}
 
 
   /* ====== بطاقات ====== */
@@ -313,10 +315,10 @@
 
 
   <nav id="bottom-nav">
-    <button data-screen="stats" class="on"><span class="ico">📊</span>الإحصائيات</button>
-    <button data-screen="new"><span class="ico">➕</span>فاتورة</button>
-    <button data-screen="customers"><span class="ico">👥</span>العملاء</button>
-    <button data-screen="users" id="nav-users" class="hidden"><span class="ico">⚙️</span>المستخدمون</button>
+    <button data-screen="stats" class="on"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20v-8M12 20V5M19 20v-5"/></svg></span>الإحصائيات</button>
+    <button data-screen="new"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11v6M9 14h6"/></svg></span>فاتورة</button>
+    <button data-screen="customers"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17" cy="9" r="2.5"/><path d="M17.5 14.2c2.4.3 4 2.1 4 4.8"/></svg></span>العملاء</button>
+    <button data-screen="users" id="nav-users" class="hidden"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h1M11 17h9"/><circle cx="16" cy="7" r="2.5"/><circle cx="8" cy="17" r="2.5"/></svg></span>المستخدمون</button>
   </nav>
 </div>
 

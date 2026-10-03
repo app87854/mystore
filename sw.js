@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mystore-shell-v7';
+const CACHE_NAME = 'mystore-shell-v8';
 const APP_SHELL = [
   './',
   './index.html',
