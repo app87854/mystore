@@ -70,6 +70,16 @@
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .stack{display:flex;flex-direction:column;gap:10px}
   .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+  .customer-picker{position:relative;display:flex;flex-direction:column;gap:5px}
+  .customer-picker>label{font-size:13px;color:var(--mute)}
+  .customer-options{position:absolute;top:100%;right:0;left:0;z-index:40;max-height:min(42vh,320px);overflow:auto;overscroll-behavior:contain;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 20px rgba(0,0,0,.12)}
+  .customer-option{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:11px;border-bottom:1px solid var(--line);text-align:right;background:#fff;cursor:pointer}
+  .customer-option:last-child{border-bottom:0}
+  .customer-option:hover,.customer-option[aria-selected="true"]{background:var(--soft)}
+  .customer-option:focus{outline:2px solid var(--main);outline-offset:-2px}
+  .customer-option-name{font-weight:600;color:var(--ink);word-break:break-word}
+  .customer-option-debt{font-size:12px;color:var(--mute);white-space:nowrap}
+  .customer-option-debt.debt{color:var(--bad)}
   #invoice-modal{position:fixed;inset:0;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:16px;z-index:60}
   #invoice-modal.hidden{display:none}
   #invoice-modal .card{width:min(430px,100%);max-height:90vh;overflow:auto;margin:0}
@@ -229,7 +239,12 @@
   <h2>فاتورة جديدة</h2>
         <div class="stack">
           <label>نوع الفاتورة<select id="inv-kind"><option value="invoice">فاتورة دين</option><option value="disbursement">فاتورة سداد</option></select></label>
-          <label>العميل<select id="inv-customer"></select></label>
+          <div class="customer-picker" id="invoice-customer-picker">
+            <label for="inv-customer-search">العميل</label>
+            <input id="inv-customer-search" type="search" placeholder="اكتب جزءاً من اسم العميل" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="inv-customer-options">
+            <input id="inv-customer" type="hidden" value="">
+            <div id="inv-customer-options" class="customer-options hidden" role="listbox" aria-label="نتائج العملاء"></div>
+          </div>
           <div class="hint" id="cust-hint"></div>
           <label>القيمة<input id="inv-amount" type="number" min="0" step="any" inputmode="decimal" placeholder="0.00"></label>
           <label>المشتريات / البيان<textarea id="inv-note" placeholder="مثال: 2 كيس سكر، 1 زيت"></textarea></label>
@@ -843,19 +858,85 @@ function closeInvoice(){ $('#invoice-modal').classList.add('hidden'); }
 
 
 /* ---- اختيارات الفاتورة الجديدة ---- */
+let customerOptionsOpen = false, customerActiveIndex = -1;
+function closeCustomerOptions(){
+  customerOptionsOpen = false; customerActiveIndex = -1;
+  const box = $('#inv-customer-options'), input = $('#inv-customer-search');
+  box.classList.add('hidden'); input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant');
+}
+function renderCustomerOptions(){
+  const input = $('#inv-customer-search'), box = $('#inv-customer-options');
+  if (!customerOptionsOpen){ box.classList.add('hidden'); input.setAttribute('aria-expanded', 'false'); return; }
+  const query = input.value.trim().toLocaleLowerCase('ar');
+  const matches = query ? C.filter(c => String(c.name || '').toLocaleLowerCase('ar').includes(query)) : C;
+  box.replaceChildren(); customerActiveIndex = -1; input.removeAttribute('aria-activedescendant');
+  if (!matches.length){
+    const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'لا يوجد عميل مطابق للبحث.'; box.appendChild(empty);
+  } else matches.forEach((c, index) => {
+    const option = document.createElement('div'); option.className = 'customer-option'; option.id = `inv-customer-option-${index}`;
+    option.setAttribute('role', 'option'); option.setAttribute('aria-selected', 'false'); option.dataset.customerOption = String(c.id);
+    const name = document.createElement('span'); name.className = 'customer-option-name'; name.textContent = c.name || 'عميل بلا اسم';
+    const debt = Number(c.debt || 0), amount = document.createElement('span');
+    amount.className = 'customer-option-debt' + (debt > 0 ? ' debt' : ''); amount.textContent = debt > 0 ? `الدين ${fmt(debt)}` : 'بلا دين';
+    option.append(name, amount); box.appendChild(option);
+  });
+  box.classList.remove('hidden'); input.setAttribute('aria-expanded', 'true');
+}
+function activateCustomerOption(index){
+  const options = [...$('#inv-customer-options').querySelectorAll('[data-customer-option]')];
+  if (!options.length) return;
+  customerActiveIndex = (index + options.length) % options.length;
+  options.forEach((option, i) => option.setAttribute('aria-selected', String(i === customerActiveIndex)));
+  const input = $('#inv-customer-search'); input.setAttribute('aria-activedescendant', options[customerActiveIndex].id);
+  options[customerActiveIndex].scrollIntoView({ block: 'nearest' });
+}
+function chooseInvoiceCustomer(id){
+  const c = C.find(x => String(x.id) === String(id)); if (!c) return;
+  $('#inv-customer').value = String(c.id); $('#inv-customer-search').value = c.name || '';
+  closeCustomerOptions(); hint();
+}
 function renderNewInvoiceSelects(){
-  const sel = $('#inv-customer'), keep = sel.value;
-  sel.innerHTML = '<option value="">— اختر العميل —</option>' +
-    C.map(c => `<option value="${c.id}">${esc(c.name)}${Number(c.debt) > 0 ? ' (' + fmt(c.debt) + ')' : ''}</option>`).join('');
-  sel.value = keep; hint();
+  const selected = $('#inv-customer'), input = $('#inv-customer-search');
+  const c = C.find(x => String(x.id) === String(selected.value));
+  if (c) input.value = c.name || '';
+  else if (selected.value){ selected.value = ''; input.value = ''; }
+  if (customerOptionsOpen) renderCustomerOptions();
+  hint();
 }
 function hint(){
-  const c = C.find(x => x.id === $('#inv-customer').value), h = $('#cust-hint');
+  const c = C.find(x => String(x.id) === String($('#inv-customer').value)), h = $('#cust-hint');
   if (!c) return h.textContent = '';
   const lim = Number(c.credit_limit), debt = Number(c.debt);
   h.textContent = `الدين الحالي ${fmt(debt)} · حد الائتمان ${lim > 0 ? fmt(lim) : 'بلا حد'}` + (lim > 0 ? ` · المتاح ${fmt(lim - debt)}` : '');
 }
-$('#inv-customer').onchange = hint;
+$('#inv-customer-search').addEventListener('focus', () => { customerOptionsOpen = true; renderCustomerOptions(); });
+$('#inv-customer-search').addEventListener('input', () => {
+  $('#inv-customer').value = ''; hint(); customerOptionsOpen = true; renderCustomerOptions();
+});
+$('#inv-customer-search').addEventListener('keydown', e => {
+  if (e.key === 'Escape' && customerOptionsOpen){ e.preventDefault(); closeCustomerOptions(); return; }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    e.preventDefault();
+    if (!customerOptionsOpen){ customerOptionsOpen = true; renderCustomerOptions(); }
+    const options = $('#inv-customer-options').querySelectorAll('[data-customer-option]');
+    if (options.length) activateCustomerOption(customerActiveIndex < 0 ? (e.key === 'ArrowDown' ? 0 : options.length - 1) : customerActiveIndex + (e.key === 'ArrowDown' ? 1 : -1));
+    return;
+  }
+  if (e.key === 'Enter' && customerOptionsOpen){
+    const options = [...$('#inv-customer-options').querySelectorAll('[data-customer-option]')];
+    const choice = customerActiveIndex >= 0 ? options[customerActiveIndex] : ($('#inv-customer-search').value.trim() ? options[0] : null);
+    if (choice){ e.preventDefault(); chooseInvoiceCustomer(choice.dataset.customerOption); }
+  }
+});
+$('#inv-customer-options').addEventListener('click', e => {
+  const option = e.target.closest('[data-customer-option]'); if (option) chooseInvoiceCustomer(option.dataset.customerOption);
+});
+document.addEventListener('pointerdown', e => {
+  if (!$('#invoice-customer-picker').contains(e.target)) closeCustomerOptions();
+});
+document.addEventListener('focusin', e => {
+  if (!$('#invoice-customer-picker').contains(e.target)) closeCustomerOptions();
+});
 
 
 /* ---- قائمة العملاء ---- */
