@@ -146,41 +146,23 @@
   #toast.err{background:var(--bad);display:block}
   .hidden{display:none!important}
 
-  /* ====== كشف الحساب المطبوع ====== */
-  .print-only{display:none}
-  @media print{
-    @page{size:A4 portrait;margin:12mm}
-    html,body{height:auto;overflow:visible;background:#fff}
-    body > *:not(#print-area){display:none!important}
-    #print-area{display:block!important;background:#fff;color:#111;font-family:Cairo,Tahoma,Arial,sans-serif;direction:rtl;font-size:11px;line-height:1.45}
-    #print-area *{box-shadow:none!important}
-    .print-head{display:flex;justify-content:space-between;align-items:center;gap:16px;background:var(--main);color:#fff;border-radius:8px;padding:10px 14px;margin-bottom:10px;print-color-adjust:exact;-webkit-print-color-adjust:exact}
-    .print-store{font-size:20px;font-weight:800}
-    .print-title{font-size:18px;font-weight:800}
-    .print-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-bottom:10px}
-    .print-meta div{border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:#fff}
-    .print-meta b{font-weight:800;color:var(--main)}
-    .print-table{width:100%;border-collapse:collapse;table-layout:fixed}
-    .print-table th,.print-table td{border:1px solid var(--line);padding:5px 4px;vertical-align:top;word-break:break-word}
-    .print-table thead th{background:var(--main);color:#fff;font-weight:800;print-color-adjust:exact;-webkit-print-color-adjust:exact}
-    .print-table tbody tr:nth-child(even){background:#eef4f1}
-    .print-table th:nth-child(1),.print-table td:nth-child(1){width:20%}
-    .print-table th:nth-child(2),.print-table td:nth-child(2){width:30%}
-    .print-table th:nth-child(3),.print-table td:nth-child(3){width:13%;text-align:center}
-    .print-table th:nth-child(4),.print-table td:nth-child(4){width:14%;text-align:center}
-    .print-table th:nth-child(5),.print-table td:nth-child(5){width:12%;text-align:center}
-    .print-table th:nth-child(6),.print-table td:nth-child(6){width:11%;text-align:center}
-    .print-debit{color:var(--bad);font-weight:800}
-    .print-credit{color:var(--ok);font-weight:800}
-    .print-void td{color:#6b7280;text-decoration:line-through}
-    .print-total{margin:14px 0 0 auto;width:240px;border:2px solid var(--main);border-radius:10px;overflow:hidden;text-align:center}
-    .print-total .t{background:var(--main);color:#fff;font-weight:800;padding:7px;print-color-adjust:exact;-webkit-print-color-adjust:exact}
-    .print-total .v{font-size:22px;font-weight:900;padding:10px;color:var(--main);direction:ltr}
-    .print-sign{display:flex;justify-content:space-between;gap:30px;margin-top:35px;padding-top:10px}
-    .print-sign span{display:block;border-top:1px solid #555;width:35%;text-align:center;padding-top:5px}
-    .print-stamp{width:35%;max-width:45mm;height:auto;print-color-adjust:exact;-webkit-print-color-adjust:exact}
-    .print-empty{text-align:center;border:1px dashed var(--line);padding:30px;margin:20px 0;border-radius:8px}
-  }
+  /* ====== معاينة وحفظ المستندات كصور ====== */
+  #img-modal{position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.62);display:flex;justify-content:center;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+  #img-modal.hidden{display:none}
+  #img-modal .img-shell{width:100%;height:100%;max-width:760px;background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+  #img-modal .img-toolbar{padding:10px;background:#fff;border-bottom:1px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.06)}
+  #img-modal .img-toolbar-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+  #img-modal .img-toolbar-head strong{color:var(--main);font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #img-modal .img-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  #img-modal .img-actions.single{grid-template-columns:1fr}
+  #img-modal .img-actions .btn{padding:9px 12px}
+  #img-wa{display:flex;align-items:center;justify-content:center;gap:7px;background:var(--main);border-color:var(--main);color:#fff}
+  #img-wa svg{width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  #img-wa-help{margin:8px 2px 0;line-height:1.45}
+  #img-list{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  .img-page{width:100%;max-width:520px;margin:0 auto;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+  .img-page img{display:block;width:100%;height:auto;background:#fff}
+  .img-page-actions{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;background:var(--soft);color:var(--mute);font-size:12px}
 </style>
 </head>
 <body>
@@ -327,7 +309,19 @@
   </div>
 </div>
 
-<div id="print-area" class="print-only"></div>
+<div id="img-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="img-modal-title">
+  <div class="img-shell">
+    <div class="img-toolbar">
+      <div class="img-toolbar-head"><strong id="img-modal-title">معاينة الصورة</strong><button class="btn del sm" id="img-close" type="button">إغلاق</button></div>
+      <div class="img-actions">
+        <button class="btn" id="img-wa" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21l1.6-4.6A9 9 0 1 1 8 19.6z"/><path d="M9 8.5c0 3.5 3 6.5 6.5 6.5l1.5-1.5-2-1-1 .8c-1-.4-2-1.4-2.4-2.4l.8-1-1-2z"/></svg><span>واتساب</span></button>
+        <button class="btn alt" id="img-save" type="button">حفظ الصورة</button>
+      </div>
+      <p id="img-wa-help" class="hint hidden" aria-live="polite"></p>
+    </div>
+    <div id="img-list"></div>
+  </div>
+</div>
 
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -488,6 +482,7 @@ let C = [], I = [], Y = [], U = [], admin = false;
 let channel = null, timer, loading = false, dirty = false, state = {};
 let screen = 'stats';
 let detailCustomerId = null;
+let imagePreviewUrls = [], imagePreviewHistoryEntry = false, ignoreImagePreviewPop = false;
 let editingUserId = null;
 const TX = {};            // كشف كامل لكل عميل (يُجلب منفردة حتى لا يُقتطع)
 const TX_INV = 'id,total,note,kind,created_at,voided_at,void_reason,edited_at,profiles!invoices_created_by_fkey(name)';
@@ -535,6 +530,8 @@ function leaveCustomer(){
   else { goTo('customers'); render(); }
 }
 window.addEventListener('popstate', () => {
+  if (ignoreImagePreviewPop){ ignoreImagePreviewPop = false; return; }
+  if (imagePreviewHistoryEntry && !$('#img-modal').classList.contains('hidden')) { closeImageModal(true); return; }
   if (screen === 'customer') { detailCustomerId = null; goTo('customers'); render(); }
 });
 $('#btn-back').onclick = leaveCustomer;
@@ -561,6 +558,7 @@ sb.auth.onAuthStateChange((_e, session) => {
   $('#app').classList.toggle('hidden', !session);
   if (session) { if (!signedIn) goTo('stats'); signedIn = true; load(); subscribe(); }
   else {
+    closeImageModal();
     signedIn = false; pushInit = false; $('#push-settings').classList.add('hidden'); C = []; I = []; Y = []; U = []; state = {}; admin = false; detailCustomerId = null;
     for (const k in TX) delete TX[k];
     ['#kpi','#recent-tx','#top-debtors','#customers','#users','#customer-tx','#profile-head'].forEach(s => { const e = $(s); if (e) e.innerHTML = ''; });
@@ -898,7 +896,7 @@ function renderCustomerDetail(id){
     <div class="pbal">${fmt(debt)}</div>
     <div class="pmeta">${lim > 0 ? `حد الائتمان: ${fmt(lim)} · المتاح: ${fmt(lim - debt)}` : 'بلا حد ائتمان'}</div>
     <div class="profile-actions">
-      <button class="btn" data-print-statement="${c.id}">طباعة كشف الحساب</button>
+      <button class="btn" data-print-statement="${c.id}">حفظ كشف الحساب كصورة</button>
       ${debt > 0 ? `<button class="btn" data-pay="${c.id}">تسديد دفعة</button>` : ''}
       ${admin ? `<button class="btn" data-rename="${c.id}">تعديل الاسم</button>` : ''}
       ${admin ? `<button class="btn" data-limit="${c.id}">تعديل الحد</button>` : ''}
@@ -923,7 +921,7 @@ function renderCustomerDetail(id){
       ${r.note ? `<div class="note">${esc(r.note)}</div>` : ''}
       <div class="run"><span>الرصيد بعد الحركة</span><b>${fmt(r.balance)}</b></div>
       ${(r.type === 'pay' || r.type === 'settlement' || (r.src === 'inv' && !r.voided) || (r.src === 'pay' && !r.voided)) ? `<div class="actions">
-        ${r.type === 'pay' || r.type === 'settlement' ? `<button class="btn alt sm" data-receipt="${r.src}:${r.id}">طباعة الإيصال</button>` : ''}
+        ${r.type === 'pay' || r.type === 'settlement' ? `<button class="btn alt sm" data-receipt="${r.src}:${r.id}">حفظ الإيصال كصورة</button>` : ''}
         ${r.src === 'pay' && !r.voided && admin ? `<button class="btn alt sm" data-edit-payment="${r.id}">تعديل التسديد</button>` : ''}
         ${r.src === 'pay' && !r.voided ? `<button class="btn del sm" data-void-payment="${r.id}">إلغاء التسديد</button>` : ''}
         ${r.src === 'inv' && r.edited ? '<span class="tag">معدلة</span>' : ''}
@@ -934,117 +932,233 @@ function renderCustomerDetail(id){
     : '<div class="empty">لا توجد حركات لهذا العميل.</div>';
 }
 
-/* ============ طباعة كشف الحساب (جلب كامل مستقل عن القوائم المختصرة) ============ */
+/* ============ حفظ كشف الحساب والإيصالات كصور ============ */
+const IMG_W = 800, IMG_H = 1130, IMG_SC = 1.5, IMG_FONT = 'Cairo, Tahoma, Arial, sans-serif';
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const palette = () => ({ main: cssv('--main') || '#0f5c4d', bad: cssv('--bad') || '#b3261e', ok: cssv('--ok') || '#166534', line: cssv('--line') || '#d9dfdc' });
+const tripoliDate = (d, dateOnly = false) => dateOnly
+  ? new Date(d).toLocaleDateString('ar', { timeZone: 'Africa/Tripoli' })
+  : new Date(d).toLocaleString('ar', { timeZone: 'Africa/Tripoli' });
+function newCanvas(h){
+  const c = document.createElement('canvas'); c.width = IMG_W * IMG_SC; c.height = h * IMG_SC;
+  const x = c.getContext('2d');
+  if (!x) throw new Error('تعذّر إنشاء لوحة الصورة');
+  x.scale(IMG_SC, IMG_SC); x.fillStyle = '#fff'; x.fillRect(0, 0, IMG_W, h); x.direction = 'rtl'; x.textBaseline = 'middle';
+  return { c, x };
+}
+function T(x, s, px, py, o = {}){ x.font = `${o.w || 400} ${o.s || 15}px ${IMG_FONT}`; x.fillStyle = o.col || '#111'; x.textAlign = o.al || 'right'; x.fillText(String(s), px, py); }
+function wrapText(x, s, maxW, font, maxLines = 99){
+  x.font = font; const out = [];
+  String(s).split('\n').forEach(par => { let cur = ''; par.split(/\s+/).forEach(w => { const t = cur ? cur + ' ' + w : w; if (cur && x.measureText(t).width > maxW){ out.push(cur); cur = w; } else cur = t; }); out.push(cur); });
+  if (out.length > maxLines){ out.length = maxLines; out[maxLines - 1] += '…'; }
+  return out;
+}
+function rrect(x, rx, ry, w, h, r, fill, stroke){
+  x.beginPath(); x.roundRect ? x.roundRect(rx, ry, w, h, r) : x.rect(rx, ry, w, h);
+  if (fill){ x.fillStyle = fill; x.fill(); } if (stroke){ x.strokeStyle = stroke; x.lineWidth = 2; x.stroke(); }
+}
+function drawHead(x, title){
+  const p = palette(); rrect(x, 24, 24, IMG_W - 48, 64, 10, p.main);
+  T(x, STORE_NAME, IMG_W - 44, 56, { w: 800, s: 24, col: '#fff' });
+  T(x, title, 44, 56, { w: 800, s: 20, col: '#fff', al: 'left' });
+  return 108;
+}
+function drawAmountBox(x, bx, y, label, value){
+  const p = palette(); rrect(x, bx, y, 240, 84, 12, '#fff', p.main); rrect(x, bx, y, 240, 32, 12, p.main);
+  T(x, label, bx + 120, y + 17, { w: 800, s: 14, col: '#fff', al: 'center' });
+  T(x, value, bx + 120, y + 58, { w: 900, s: 28, col: p.main, al: 'center' });
+}
+function drawSign(x, y, stamp){
+  if (stamp){ const k = Math.min(180 / stamp.width, 110 / stamp.height); x.drawImage(stamp, IMG_W - 44 - stamp.width * k, y, stamp.width * k, stamp.height * k); }
+  x.strokeStyle = '#555'; x.lineWidth = 1; x.beginPath(); x.moveTo(44, y + 90); x.lineTo(284, y + 90); x.stroke();
+  T(x, 'توقيع العميل', 164, y + 108, { s: 14, al: 'center' });
+}
+const loadStamp = () => new Promise(res => {
+  const i = new Image(); let done = false;
+  const finish = value => { if (done) return; done = true; clearTimeout(timer); res(value); };
+  const timer = setTimeout(() => finish(null), 2500);
+  i.onload = () => finish(i); i.onerror = () => finish(null); i.src = 'stamp.png';
+});
+const toBlob = c => new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('تعذّر ترميز الصورة')), 'image/png'));
+function closeImageModal(fromPop = false){
+  const hadHistoryEntry = imagePreviewHistoryEntry;
+  imagePreviewHistoryEntry = false;
+  $('#img-modal').classList.add('hidden'); $('#img-list').replaceChildren();
+  imagePreviewUrls.forEach(u => URL.revokeObjectURL(u)); imagePreviewUrls = [];
+  $('#img-wa').onclick = null; $('#img-save').onclick = null;
+  $('#img-wa-help').classList.add('hidden'); $('#img-wa-help').textContent = '';
+  if (hadHistoryEntry && !fromPop){ ignoreImagePreviewPop = true; history.back(); }
+}
+function downloadImage(index){
+  const file = document.querySelectorAll('#img-list img')[index], url = imagePreviewUrls[index];
+  if (!file || !url) return;
+  const a = document.createElement('a'); a.href = url; a.download = file.dataset.filename || 'مستند.png';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+$('#img-close').onclick = closeImageModal;
+$('#img-modal').addEventListener('click', e => { if (e.target.id === 'img-modal') closeImageModal(); });
+window.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#img-modal').classList.contains('hidden')) closeImageModal(); });
+
+const WA_COUNTRY = '218'; // رمز ليبيا للأرقام المحلية؛ الأرقام الدولية تُحفظ كما هي.
+function waNumber(phone){
+  const raw = String(phone || '').trim();
+  let d = raw.replace(/[٠-٩]/g, n => String('٠١٢٣٤٥٦٧٨٩'.indexOf(n)))
+    .replace(/[۰-۹]/g, n => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(n))).replace(/\D/g, '');
+  if (!d) return '';
+  const international = raw.startsWith('+') || d.startsWith('00');
+  if (d.startsWith('00')) d = d.slice(2);
+  if (international && d.startsWith('0')) return '';
+  if (!international && d.startsWith('0')) d = WA_COUNTRY + d.slice(1);
+  else if (!international && !d.startsWith(WA_COUNTRY) && d.length <= 10) return '';
+  return d.length >= 8 && d.length <= 15 ? d : '';
+}
+
+async function showImages(blobs, name, { phone = '', text = '' } = {}){
+  const safe = String(name).replace(/[\\/:*?"<>|]/g, '').trim() || 'مستند';
+  const files = blobs.map((blob, i) => new File([blob], `${safe}${blobs.length > 1 ? '-' + (i + 1) : ''}.png`, { type: 'image/png' }));
+  closeImageModal();
+  imagePreviewUrls = files.map(f => URL.createObjectURL(f));
+  const list = $('#img-list');
+  files.forEach((file, i) => {
+    const card = document.createElement('article'); card.className = 'img-page';
+    const img = document.createElement('img'); img.src = imagePreviewUrls[i]; img.alt = `${safe} — الصفحة ${i + 1}`; img.dataset.filename = file.name; img.loading = 'lazy';
+    card.appendChild(img);
+    if (files.length > 1){
+      const actions = document.createElement('div'); actions.className = 'img-page-actions';
+      const label = document.createElement('span'); label.textContent = `الصفحة ${i + 1} من ${files.length}`;
+      const link = document.createElement('a'); link.className = 'btn alt sm'; link.href = imagePreviewUrls[i]; link.download = file.name; link.textContent = 'حفظ الصورة';
+      actions.append(label, link); card.appendChild(actions);
+    }
+    list.appendChild(card);
+  });
+  const wa = $('#img-wa'), save = $('#img-save'), shareText = String(text || safe); let canShare = false;
+  try { canShare = !!navigator.share && !!navigator.canShare && navigator.canShare({ files }); } catch { canShare = false; }
+  save.classList.toggle('hidden', files.length !== 1);
+  const actionBar = document.querySelector('#img-modal .img-actions'), visibleActions = 1 + Number(files.length === 1);
+  actionBar.classList.toggle('hidden', visibleActions === 0); actionBar.classList.toggle('single', visibleActions === 1);
+  wa.onclick = async () => {
+    if (canShare){
+      try { await navigator.share({ files, title: safe, text: shareText }); }
+      catch (err) { if (err?.name !== 'AbortError') { $('#img-wa-help').textContent = 'تعذّرت المشاركة المباشرة؛ احفظ الصورة وأرفقها يدويًا في واتساب.'; $('#img-wa-help').classList.remove('hidden'); } }
+      return;
+    }
+    const number = waNumber(phone), target = number ? `https://wa.me/${number}` : 'https://wa.me/';
+    if (files.length === 1) downloadImage(0);
+    window.open(`${target}?text=${encodeURIComponent(shareText)}`, '_blank', 'noopener,noreferrer');
+    const recipientHint = number ? '' : ' لم نتمكن من تحديد رقم دولي؛ اختر جهة الاتصال يدويًا.';
+    $('#img-wa-help').textContent = (files.length === 1
+      ? 'فتحنا واتساب وبدأ حفظ الصورة؛ أرفقها في المحادثة قبل الإرسال.'
+      : 'فتحنا واتساب برسالة جاهزة؛ احفظ كل صفحة من زرها أسفل الصورة ثم أرفقها قبل الإرسال.') + recipientHint;
+    $('#img-wa-help').classList.remove('hidden');
+  };
+  save.onclick = () => downloadImage(0);
+  $('#img-modal-title').textContent = safe;
+  try {
+    const current = history.state && typeof history.state === 'object' ? history.state : {};
+    history.pushState({ ...current, imagePreview: true }, ''); imagePreviewHistoryEntry = true;
+  } catch { imagePreviewHistoryEntry = false; }
+  $('#img-modal').classList.remove('hidden');
+}
+
 async function printStatement(customerId, btn){
   btn = btn || document.querySelector(`[data-print-statement="${customerId}"]`);
-  const area = $('#print-area');
+  const label = 'حفظ كشف الحساب كصورة';
   if (btn) { btn.disabled = true; btn.textContent = 'جارٍ التجهيز…'; }
-  area.innerHTML = '<div class="empty">جارٍ تجهيز كشف الحساب…</div>';
   try {
     const [cRes, iRes, yRes] = await Promise.all([
       sb.from('customers').select('id,name,phone').eq('id', customerId).single(),
-      fetchAll('invoices', TX_INV, customerId),
-      fetchAll('payments', TX_PAY, customerId)
+      fetchAll('invoices', TX_INV, customerId), fetchAll('payments', TX_PAY, customerId)
     ]);
-    if (cRes.error) { area.innerHTML = ''; return toast('تعذّر تجهيز كشف الحساب: ' + cRes.error.message, false); }
-    if (!cRes.data)  { area.innerHTML = ''; return toast('العميل غير موجود', false); }
-
-    // كشف ناقص وثيقة مالية ناقصة: لا نطبع شيئاً. يُعاد المحاولة بزر الطباعة.
-    if (!iRes.complete || !yRes.complete){
-      area.innerHTML = '';
-      return toast('تعذّر جلب كشف الحساب كاملاً (تجاوز حدّ الاستجابة) — لم يُطبع شيء', false);
+    if (cRes.error) return toast('تعذّر تجهيز كشف الحساب: ' + (cRes.error.message || 'خطأ غير معروف'), false);
+    if (!cRes.data) return toast('العميل غير موجود', false);
+    if (!iRes.complete || !yRes.complete) return toast('تعذّر جلب كشف الحساب كاملاً — لم تُنشأ الصور', false);
+    const st = buildStatement(iRes.rows, yRes.rows), customer = cRes.data, p = palette();
+    if (document.fonts?.ready) await document.fonts.ready;
+    const stamp = await loadStamp(), cols = [290, 120, 100, 110, 132];
+    const probe = newCanvas(10).x, noteFont = `400 14px ${IMG_FONT}`;
+    const rowHeight = r => Math.max(36, wrapText(probe, r.title + (r.note ? ' — ' + r.note : ''), cols[0] - 14, noteFont, 3).length * 20 + 16);
+    let total = 1, estimateY = 282;
+    if (!st.rows.length) estimateY += 60;
+    for (const r of st.rows){
+      const rh = rowHeight(r);
+      if (estimateY + rh > IMG_H - 50){ total++; estimateY = 154; }
+      estimateY += rh;
     }
+    if (estimateY + 270 > IMG_H - 30) total++;
 
-    // نفس الدالة التي تبني كشف الشاشة — فلا يمكن أن يختلف الرقمان
-    const st = buildStatement(iRes.rows, yRes.rows);
-    const customer = cRes.data;
-    window.__statementPreviousTitle = document.title;
-    document.title = `${customer.name} - كشف حساب`;
-
-    // الأعمدة: اسم العميل | الملاحظة | القيمة | التاريخ | البائع (+ الرصيد المتحرك)
-    // النوع والقيمة والأثر على الرصيد مأخوذة كما هي من buildStatement دون إعادة حساب
-    const tableRows = st.rows.map(r => {
-      const value = r.voided ? '—'
-        : (r.type === 'pay' || r.type === 'settlement') ? `<span class="print-credit">− ${fmt(r.credit)}</span>`
-        : `<span class="print-debit">+ ${fmt(r.debit)}</span>`;
-      return `<tr class="${r.voided ? 'print-void' : ''}">
-        <td>${esc(customer.name)}</td>
-        <td>${esc(r.title + (r.note ? ' — ' + r.note : ''))}</td>
-        <td>${value}</td>
-        <td>${esc(new Date(r.d).toLocaleDateString('ar'))}</td>
-        <td>${esc(r.by || '—')}</td>
-        <td>${fmt(r.balance)}</td>
-      </tr>`;
-    }).join('');
-    const finalBalance = st.finalBalance;
-    const printedAt = new Date().toLocaleString('ar');
-    area.innerHTML = `
-      <div class="print-head"><div class="print-store">${esc(STORE_NAME)}</div><div class="print-title">كشف حساب</div></div>
-      <div class="print-meta">
-        <div>العميل: <b>${esc(customer.name)}</b></div>
-        <div>الهاتف: <b>${esc(customer.phone || '—')}</b></div>
-        <div>الرصيد الحالي: <b>${fmt(finalBalance)}</b></div>
-        <div>تاريخ الطباعة: <b>${esc(printedAt)}</b></div>
-      </div>
-      ${st.rows.length ? `<table class="print-table"><thead><tr><th>اسم العميل</th><th>الملاحظة</th><th>القيمة</th><th>التاريخ</th><th>البائع</th><th>الرصيد</th></tr></thead><tbody>${tableRows}</tbody></table>` : '<div class="print-empty">لا توجد حركات</div>'}
-      <div class="print-total"><div class="t">المجموع النهائي</div><div class="v">${fmt(finalBalance)}</div></div>
-      <div class="print-sign"><img class="print-stamp" src="stamp.png" alt="ختم المحل"><span>توقيع العميل</span></div>`;
-    // نؤجّل الطباعة إطارين حتى يكتمل تخطيط الجدول (يمنع صفحة أولى فارغة)،
-    // ولا نطبع قبل تحميل صورة الختم حتى لا تخرج فارغة (مع مهلة أمان)
-    const stampImg = area.querySelector('.print-stamp');
-    let printFired = false;
-    const goPrint = () => {
-      if (printFired) return; printFired = true;
-      requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => window.print(), 30)));
+    const blobs = []; let pg = null, x, y;
+    const finishPage = async () => {
+      const g = pg.x; g.setTransform(IMG_SC, 0, 0, IMG_SC, 0, 0); g.direction = 'rtl';
+      T(g, `صفحة ${blobs.length + 1} من ${total}`, IMG_W / 2, IMG_H - 20, { s: 12, col: '#6b7280', al: 'center' });
+      blobs.push(await toBlob(pg.c)); pg.c.width = 0; pg.c.height = 0; pg = null;
     };
-    if (stampImg && !stampImg.complete) {
-      stampImg.onload = stampImg.onerror = goPrint;
-      setTimeout(goPrint, 2000);
-    } else goPrint();
+    const begin = async (first, table = true) => {
+      if (pg) await finishPage();
+      pg = newCanvas(IMG_H); x = pg.x; y = drawHead(x, 'كشف حساب') + 8;
+      if (first){
+        [`العميل: ${customer.name}`, `الهاتف: ${customer.phone || '—'}`, `الرصيد الحالي: ${fmt(st.finalBalance)}`, `تاريخ الإصدار: ${tripoliDate(new Date())}`]
+          .forEach(s => { T(x, s, IMG_W - 44, y + 14, { s: 16 }); y += 30; });
+        y += 8;
+      }
+      if (table){
+        rrect(x, 24, y, IMG_W - 48, 32, 6, p.main); let cx = IMG_W - 24;
+        ['الملاحظة', 'القيمة', 'التاريخ', 'البائع', 'الرصيد'].forEach((h, i) => { T(x, h, cx - cols[i] / 2, y + 17, { w: 800, s: 14, col: '#fff', al: 'center' }); cx -= cols[i]; });
+        y += 38;
+      }
+    };
+    await begin(true);
+    if (!st.rows.length){ T(x, 'لا توجد حركات', IMG_W / 2, y + 30, { s: 16, col: '#6b7280', al: 'center' }); y += 60; }
+    for (const [i, r] of st.rows.entries()){
+      const lines = wrapText(probe, r.title + (r.note ? ' — ' + r.note : ''), cols[0] - 14, noteFont, 3), rh = rowHeight(r);
+      if (y + rh > IMG_H - 50) await begin(false);
+      if (i % 2) { x.fillStyle = '#eef4f1'; x.fillRect(24, y, IMG_W - 48, rh); }
+      const col = r.voided ? '#6b7280' : '#111', mid = y + rh / 2;
+      lines.forEach((s, k) => T(x, s, IMG_W - 32, y + 18 + k * 20, { s: 14, col }));
+      const isIn = r.type === 'pay' || r.type === 'settlement';
+      const val = r.voided ? '—' : isIn ? '− ' + fmt(r.credit) : '+ ' + fmt(r.debit);
+      let cx = IMG_W - 24 - cols[0];
+      [[val, r.voided ? col : isIn ? p.ok : p.bad, 800], [tripoliDate(r.d, true), col, 400], [r.by || '—', col, 400], [fmt(r.balance), col, 400]]
+        .forEach(([s, color, w], k) => { T(x, s, cx - cols[k + 1] / 2, mid, { s: 14, col: color, w, al: 'center' }); cx -= cols[k + 1]; });
+      x.strokeStyle = p.line; x.lineWidth = 1; x.beginPath(); x.moveTo(24, y + rh); x.lineTo(IMG_W - 24, y + rh); x.stroke(); y += rh;
+    }
+    if (y + 270 > IMG_H - 30) await begin(false, false);
+    y += 24; drawAmountBox(x, IMG_W - 24 - 240, y, 'الرصيد النهائي', fmt(st.finalBalance)); drawSign(x, y + 110, stamp);
+    await finishPage();
+    await showImages(blobs, `${customer.name} - كشف حساب`, {
+      phone: customer.phone,
+      text: `${STORE_NAME} — كشف حساب ${customer.name}، الرصيد الحالي ${fmt(st.finalBalance)}`
+    });
   } catch (err) {
-    area.innerHTML = '';
-    toast('تعذّر تجهيز كشف الحساب: ' + (err.message || err), false);
+    toast('تعذّر تجهيز كشف الحساب: ' + (err?.message || err), false);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'طباعة كشف الحساب'; }
+    if (btn) { btn.disabled = false; btn.textContent = label; }
   }
 }
-window.addEventListener('afterprint', () => {
-  $('#print-area').innerHTML = '';
-  if (window.__statementPreviousTitle) {
-    document.title = window.__statementPreviousTitle;
-    delete window.__statementPreviousTitle;
-  }
-});
 
-
-/* ---- إيصال قبض / فاتورة سداد (من بيانات الكشف المحمّل، دون جلب إضافي) ---- */
-function printReceipt(src, id){
-  const cid = String(detailCustomerId);
-  const c = C.find(x => String(x.id) === cid);
+async function printReceipt(src, id){
+  const cid = String(detailCustomerId), c = C.find(x => String(x.id) === cid);
   const r = TX[cid]?.st.rows.find(x => x.src === src && String(x.id) === String(id));
   if (!c || !r || r.voided) return toast('تعذّر تجهيز الإيصال', false);
-  const isIn = r.src === 'pay' || r.type === 'settlement';
-  const title = r.type === 'settlement' ? 'فاتورة سداد' : 'إيصال قبض';
-  const area = $('#print-area');
-  window.__statementPreviousTitle = document.title;
-  document.title = `${c.name} - ${title} ${r.id}`;
-  area.innerHTML = `
-    <div class="print-head"><div class="print-store">${esc(STORE_NAME)}</div><div class="print-title">${title}</div></div>
-    <div class="print-meta">
-      <div>الرقم: <b>${r.id}</b></div>
-      <div>التاريخ: <b>${esc(new Date(r.d).toLocaleString('ar'))}</b></div>
-      <div>العميل: <b>${esc(c.name)}</b></div>
-      <div>البائع: <b>${esc(r.by || '—')}</b></div>
-      <div>الرصيد بعد الحركة: <b>${fmt(r.balance)}</b></div>
-      ${r.note ? `<div style="grid-column:1/-1;white-space:pre-wrap">البيان: ${esc(r.note)}</div>` : ''}
-    </div>
-    <div class="print-total"><div class="t">المبلغ</div><div class="v">${fmt(isIn ? r.credit : r.debit)}</div></div>
-    <p>${isIn ? 'خُصم المبلغ المذكور أعلاه من دين العميل.' : 'أضيف المبلغ المذكور أعلاه إلى دين العميل.'}</p>
-    <div class="print-sign"><img class="print-stamp" src="stamp.png" alt="ختم المحل"><span>توقيع العميل</span></div>`;
-  const img = area.querySelector('.print-stamp');
-  let fired = false;
-  const go = () => { if (fired) return; fired = true; requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => window.print(), 30))); };
-  if (img && !img.complete) { img.onload = img.onerror = go; setTimeout(go, 2000); } else go();
+  try {
+    let phone = c.phone || '';
+    if (!phone){ try { const { data } = await sb.from('customers').select('phone').eq('id', cid).maybeSingle(); phone = data?.phone || ''; } catch {} }
+    if (document.fonts?.ready) await document.fonts.ready;
+    const stamp = await loadStamp(), isIn = r.src === 'pay' || r.type === 'settlement';
+    const title = r.type === 'settlement' ? 'فاتورة سداد' : 'إيصال قبض';
+    const rows = [`الرقم: ${r.id}`, `التاريخ: ${tripoliDate(r.d)}`, `العميل: ${c.name}`, `البائع: ${r.by || '—'}`, `الرصيد بعد الحركة: ${fmt(r.balance)}`];
+    const note = r.note ? wrapText(newCanvas(10).x, 'البيان: ' + r.note, IMG_W - 88, `400 17px ${IMG_FONT}`) : [];
+    const n = rows.length + note.length, pg = newCanvas(500 + n * 36), x = pg.x;
+    let y = drawHead(x, title) + 20;
+    [...rows, ...note].forEach(s => { T(x, s, IMG_W - 44, y + 18, { s: 17 }); y += 36; });
+    y += 20; drawAmountBox(x, (IMG_W - 240) / 2, y, 'المبلغ', fmt(isIn ? r.credit : r.debit));
+    T(x, isIn ? 'خُصم المبلغ المذكور أعلاه من دين العميل.' : 'أضيف المبلغ المذكور أعلاه إلى دين العميل.', IMG_W - 44, y + 116, { s: 16 });
+    drawSign(x, y + 150, stamp);
+    const blob = await toBlob(pg.c); pg.c.width = 0; pg.c.height = 0;
+    await showImages([blob], `${c.name} - ${title} ${r.id}`, {
+      phone,
+      text: `${STORE_NAME} — ${title} رقم ${r.id} بمبلغ ${fmt(isIn ? r.credit : r.debit)}`
+    });
+  } catch (err) { toast('تعذّر تجهيز الإيصال: ' + (err?.message || err), false); }
 }
 
 
