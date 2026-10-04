@@ -13,6 +13,17 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
+const MIN_PASSWORD = 6;
+
+// لا نُرجع رسائل قاعدة البيانات أو Auth الخام للعميل؛ نسجّلها في السجل ونعرض رسالة ثابتة.
+function safeError(context: string, err: { message?: string; code?: string } | null | undefined, fallback: string) {
+  console.error(context, err?.code ?? "", err?.message ?? "");
+  const code = String(err?.code ?? "");
+  if (code === "23505" || code === "email_exists" || code === "user_already_exists") return json({ error: "اسم المستخدم مستخدم بالفعل" }, 400);
+  if (code === "weak_password") return json({ error: "كلمة المرور ضعيفة أو مسرّبة، اختر كلمة أخرى" }, 400);
+  return json({ error: fallback }, 400);
+}
+
 const usernamePattern = /^[\p{L}\p{N}_-]{2,40}$/u;
 
 Deno.serve(async (req: Request) => {
@@ -43,7 +54,7 @@ Deno.serve(async (req: Request) => {
   if (action === "list") {
     const { data, error } = await adminClient
       .from("profiles").select("id,username,name,role").order("name").limit(200);
-    if (error) return json({ error: error.message }, 400);
+    if (error) return safeError("list failed", error, "تعذر تحميل المستخدمين");
     return json({ users: data ?? [] });
   }
 
@@ -54,7 +65,7 @@ Deno.serve(async (req: Request) => {
   const password = String(body.password ?? "");
   if (!usernamePattern.test(username)) return json({ error: "اسم المستخدم: حرفان على الأقل، وبدون مسافات" }, 400);
   if (!name) return json({ error: "أدخل الاسم" }, 400);
-  if (action === "create" && password.length < 6) return json({ error: "كلمة المرور يجب أن تكون 6 أحرف على الأقل" }, 400);
+  if (action === "create" && password.length < MIN_PASSWORD) return json({ error: `كلمة المرور يجب أن تكون ${MIN_PASSWORD} أحرف على الأقل` }, 400);
 
   if (action === "create") {
     const internalEmail = `u_${crypto.randomUUID()}@users.mystore.internal`;
@@ -63,13 +74,13 @@ Deno.serve(async (req: Request) => {
       password,
       email_confirm: true,
     });
-    if (createError || !created.user) return json({ error: createError?.message ?? "تعذر إنشاء المستخدم" }, 400);
+    if (createError || !created.user) return safeError("createUser failed", createError, "تعذر إنشاء المستخدم");
     const { error: profileError } = await adminClient.from("profiles").upsert({
       id: created.user.id, username, name, role,
     });
     if (profileError) {
       await adminClient.auth.admin.deleteUser(created.user.id);
-      return json({ error: profileError.message }, 400);
+      return safeError("profile upsert failed", profileError, "تعذر حفظ بيانات المستخدم");
     }
     return json({ ok: true });
   }
@@ -84,12 +95,12 @@ Deno.serve(async (req: Request) => {
     const { count } = await adminClient.from("profiles").select("id", { count: "exact", head: true }).eq("role", "admin");
     if ((count ?? 0) <= 1) return json({ error: "يجب إبقاء مدير واحد على الأقل" }, 400);
   }
+  if (password && password.length < MIN_PASSWORD) return json({ error: `كلمة المرور يجب أن تكون ${MIN_PASSWORD} أحرف على الأقل` }, 400);
   const { error: profileError } = await adminClient.from("profiles").update({ username, name, role }).eq("id", id);
-  if (profileError) return json({ error: profileError.message }, 400);
+  if (profileError) return safeError("profile update failed", profileError, "تعذر تحديث المستخدم");
   if (password) {
-    if (password.length < 6) return json({ error: "كلمة المرور يجب أن تكون 6 أحرف على الأقل" }, 400);
     const { error: passwordError } = await adminClient.auth.admin.updateUserById(id, { password });
-    if (passwordError) return json({ error: passwordError.message }, 400);
+    if (passwordError) return safeError("password update failed", passwordError, "تعذر تغيير كلمة المرور");
   }
   return json({ ok: true });
 });

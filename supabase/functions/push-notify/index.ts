@@ -127,14 +127,23 @@ async function processEvent(client: Client, eventId: number): Promise<Outcome> {
   };
 
   if (event.event_type === "invoice_created" || event.event_type === "invoice_voided") {
-    if (!event.actor_id) return finish("skipped");
-    const { data: actor, error } = await client.from("profiles").select("role").eq("id", event.actor_id).maybeSingle();
-    if (error) throw error;
-    if (actor?.role !== "seller") return finish("skipped");
+    // يصل الإشعار لكل المديرين المشتركين، سواء كان من سجّل الفاتورة بائعاً أو مديراً.
+    let actorName = "أحد المستخدمين";
+    if (event.actor_id) {
+      const { data: actor, error } = await client.from("profiles").select("username,name").eq("id", event.actor_id).maybeSingle();
+      if (error) throw error;
+      actorName = actor?.name || actor?.username || actorName;
+    }
+    let kindLabel = "فاتورة";
+    if (event.invoice_id) {
+      const { data: inv, error } = await client.from("invoices").select("kind").eq("id", event.invoice_id).maybeSingle();
+      if (error) throw error;
+      if (inv?.kind === "disbursement") kindLabel = "فاتورة سداد";
+    }
     title = "حركة جديدة في سجل الديون";
     body = event.event_type === "invoice_voided"
-      ? "ألغى أحد البائعين فاتورة في المتجر."
-      : "سجّل أحد البائعين فاتورة أو فاتورة سداد.";
+      ? `ألغى ${actorName} ${kindLabel}.`
+      : `سجّل ${actorName} ${kindLabel} جديدة.`;
   } else if (event.event_type === "credit_check") {
     if (!event.customer_id) return finish("skipped");
     const { data: balance, error } = await client.from("customer_balances")

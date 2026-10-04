@@ -1,10 +1,12 @@
-const CACHE_NAME = 'mystore-shell-v8';
+const CACHE_NAME = 'mystore-shell-v9';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
   './assets/icon-192.png',
   './assets/icon-512.png',
+  './assets/icon-maskable-192.png',
+  './assets/icon-maskable-512.png',
   './stamp.png'
 ];
 
