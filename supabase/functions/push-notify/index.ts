@@ -67,6 +67,47 @@ async function getAdminSubscriptions(client: Client): Promise<SubscriptionRow[]>
   return (data ?? []) as SubscriptionRow[];
 }
 
+// اختبار يدوي من لوحة Supabase: رسالة واضحة، ولا يكتب إلى قاعدة البيانات.
+async function sendTestNotification(client: Client): Promise<Response> {
+  const subscriptions = await getAdminSubscriptions(client);
+  if (!subscriptions.length) return json({ ok: false, info: "no-subscribers" }, 409);
+
+  const vapidPublicKey = Deno.env.get("VAPID_PUBLIC_KEY") ?? "";
+  const vapidPrivateKey = Deno.env.get("VAPID_PRIVATE_KEY") ?? "";
+  const vapidSubject = Deno.env.get("VAPID_SUBJECT") ?? "";
+  if (!vapidPublicKey || !vapidPrivateKey || !vapidSubject) {
+    return json({ ok: false, info: "vapid-not-configured" }, 503);
+  }
+
+  const payloadText = JSON.stringify({
+    title: "اختبار إشعار MyStore",
+    body: "تم إرسال هذه الرسالة للتحقق من عمل الإشعارات.",
+    tag: `mystore-test-${crypto.randomUUID()}`,
+    url: "./",
+  });
+  const results = await Promise.all(subscriptions.map(async (s): Promise<string> => {
+    if (!allowedEndpoint(s.endpoint)) return "invalid-endpoint";
+    try {
+      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payloadText, {
+        TTL: 120, urgency: "normal",
+        vapidDetails: { subject: vapidSubject, publicKey: vapidPublicKey, privateKey: vapidPrivateKey },
+      });
+      return "sent";
+    } catch (error) {
+      const status = Number((error as { statusCode?: number })?.statusCode ?? 0);
+      console.warn("Test push delivery failed", { status });
+      if (status === 404 || status === 410) return "expired";
+      return status === 0 || status === 429 || status >= 500 ? "retry" : "rejected";
+    }
+  }));
+
+  const sent = results.filter((r) => r === "sent").length;
+  const failed = results.length - sent;
+  return sent === results.length
+    ? json({ ok: true, sent, failed: 0 })
+    : json({ ok: false, sent, failed }, 503);
+}
+
 async function processEvent(client: Client, eventId: number): Promise<Outcome> {
   const { data: event, error: eventError } = await client.from("push_events")
     .select("id,event_type,actor_id,customer_id,invoice_id,processed_at").eq("id", eventId).maybeSingle();
@@ -174,6 +215,7 @@ async function retryPending(client: Client) {
 }
 
 async function processWebhook(payload: WebhookPayload, client: Client) {
+  if (payload.action === "test_push") return await sendTestNotification(client);
   if (payload.action === "retry_pending") return await retryPending(client);
   if (payload.type !== "INSERT" || payload.schema !== "public" || payload.table !== "push_events") {
     return json({ error: "حدث غير مدعوم" }, 400);
