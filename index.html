@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="./assets/icon-192.png">
 <title>سجل الديون</title>
 <style>
-  :root{--ink:#1c2321;--mute:#66736f;--line:#d9dfdc;--bg:#f3f5f2;--main:#0f5c4d;--bad:#b3261e;--ok:#166534;--nav-h:64px}
+  :root{--ink:#1c2321;--mute:#66736f;--line:#d9dfdc;--bg:#f3f5f2;--main:#0f5c4d;--bad:#b3261e;--ok:#166534;--nav-h:64px;--soft:#f6f8f7}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{height:100%}
   body{margin:0;font-family:system-ui,'Segoe UI',Tahoma,sans-serif;background:var(--bg);color:var(--ink);overflow:hidden}
@@ -65,13 +65,6 @@
   .btn.del{background:#fff;color:var(--bad);border-color:var(--bad)}
   .btn.sm{padding:7px 12px;font-size:13px;border-radius:8px}
   .btn:disabled{opacity:.5}
-  .kind-picker{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .kind-btn{min-height:62px;border-radius:12px;border:2px solid;font-weight:800;font-size:16px;display:flex;align-items:center;justify-content:center;gap:8px;transition:.15s}
-  .kind-btn .kind-sign{font-size:28px;line-height:1}
-  .kind-btn.debt{color:#fff;border-color:var(--bad);background:var(--bad);box-shadow:0 2px 6px rgba(179,38,30,.35)}
-  .kind-btn.settlement{color:#fff;border-color:var(--main);background:var(--main);box-shadow:0 2px 6px rgba(15,92,77,.35)}
-  .kind-btn:not(.selected){opacity:.55;filter:saturate(.65)}
-  .kind-btn.selected{opacity:1;transform:translateY(-1px);filter:saturate(1.2);box-shadow:0 0 0 3px rgba(255,255,255,.9),0 0 12px currentColor,0 0 28px currentColor}
   .empty{color:var(--mute);padding:20px;text-align:center;font-size:14px}
   .hint{color:var(--mute);font-size:13px}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -214,6 +207,13 @@
     <!-- ==== شاشة 1: الإحصائيات ==== -->
     <section id="screen-stats" class="screen">
       <div class="kpi" id="kpi"></div>
+      <div class="card hidden" id="push-settings">
+        <h2>إشعارات المدير</h2>
+        <div class="row2" style="align-items:center">
+          <div class="hint" id="push-status" aria-live="polite">إشعارات المتجر اختيارية لهذا الجهاز.</div>
+          <button id="btn-push-toggle" class="btn alt sm" type="button">تفعيل الإشعارات</button>
+        </div>
+      </div>
       <div class="card">
         <h2>آخر الحركات</h2>
         <div class="filters">
@@ -246,12 +246,7 @@
       <div class="card">
   <h2>فاتورة جديدة</h2>
         <div class="stack">
-          <label>نوع الفاتورة</label>
-          <input id="inv-kind" type="hidden" value="invoice">
-          <div class="kind-picker" role="group" aria-label="نوع الفاتورة">
-            <button type="button" class="kind-btn debt selected" data-kind="invoice"><span class="kind-sign">+</span><span>فاتورة دين</span></button>
-            <button type="button" class="kind-btn settlement" data-kind="disbursement"><span class="kind-sign">−</span><span>فاتورة سداد</span></button>
-          </div>
+          <label>نوع الفاتورة<select id="inv-kind"><option value="invoice">فاتورة دين</option><option value="disbursement">فاتورة سداد</option></select></label>
           <label>العميل<select id="inv-customer"></select></label>
           <div class="hint" id="cust-hint"></div>
           <label>القيمة<input id="inv-amount" type="number" min="0" step="any" inputmode="decimal" placeholder="0.00"></label>
@@ -348,19 +343,142 @@ const STORE_NAME   = 'سجل الديون';
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-document.querySelectorAll('[data-kind]').forEach(btn => {
-  btn.onclick = () => {
-    $('#inv-kind').value = btn.dataset.kind;
-    document.querySelectorAll('[data-kind]').forEach(x => x.classList.toggle('selected', x === btn));
-    hint();
-  };
-});
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const fmt = n => (Number(n) || 0).toFixed(2);
 const num = s => Number(String(s ?? '').replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/٫/g, '.').replace(/[٬,\s]/g, ''));
 const dt = d => new Date(d).toLocaleString('ar', { dateStyle:'short', timeStyle:'short' });
 const coll = new Intl.Collator('ar', { numeric: true, sensitivity: 'base' });
+let pushVapidPublicKey = null, pushBusy = false, pushInit = false;
+
+function isIOSHomeScreenRequired(){
+  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+  return ios && !standalone;
+}
+function pushSupported(){
+  return window.isSecureContext && 'serviceWorker' in navigator &&
+    'PushManager' in window && 'Notification' in window;
+}
+async function refreshPushSettings(){
+  if (pushBusy) return;
+  const card = $('#push-settings'), button = $('#btn-push-toggle'), status = $('#push-status');
+  if (!card || !button || !status) return;
+  card.classList.toggle('hidden', !admin);
+  if (!admin) return;
+  button.disabled = false;
+  if (isIOSHomeScreenRequired()){
+    status.textContent = 'على iPhone أو iPad، أضف التطبيق إلى الشاشة الرئيسية أولًا.';
+    button.disabled = true;
+    return;
+  }
+  if (!pushSupported()){
+    status.textContent = 'هذا المتصفح أو الاتصال لا يدعم Web Push؛ يلزم HTTPS ومتصفح يدعم الإشعارات.';
+    button.disabled = true;
+    return;
+  }
+  if (Notification.permission === 'denied'){
+    status.textContent = 'إذن الإشعارات مرفوض. غيّر الإذن من إعدادات المتصفح لهذا الموقع.';
+    button.disabled = true;
+    return;
+  }
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if (!subscription){
+      const { error: rpcError } = await sb.rpc('has_push_subscription', { p_endpoint: '' });
+      if (rpcError) throw rpcError;
+      const { data, error } = await sb.functions.invoke('push-notify', { body: { action: 'public_key' } });
+      if (error || !data?.publicKey) throw new Error('خدمة الإشعارات غير مهيأة على الخادم');
+      pushVapidPublicKey = data.publicKey;
+      status.textContent = 'يمكنك تفعيل إشعارات المتجر على هذا الجهاز.';
+      button.textContent = 'تفعيل الإشعارات';
+      return;
+    }
+    pushVapidPublicKey = null;
+    const { data: active, error } = await sb.rpc('has_push_subscription', { p_endpoint: subscription.endpoint });
+    if (error) throw error;
+    status.textContent = active ? 'هذا الجهاز مسجّل لاستقبال إشعارات المدير.' : 'يوجد اشتراك محلي غير مربوط بهذا الحساب.';
+    button.textContent = active ? 'إيقاف الإشعارات على هذا الجهاز' : 'تفعيل الإشعارات لهذا الحساب';
+  } catch {
+    pushVapidPublicKey = null;
+    status.textContent = 'خدمة الإشعارات غير مهيأة أو تعذر الوصول إليها؛ لن يُطلب إذن المتصفح قبل جاهزية الخادم.';
+    button.textContent = 'غير متاح قبل الإعداد';
+    button.disabled = true;
+  }
+}
+function vapidKeyBytes(base64Url){
+  const padding = '='.repeat((4 - base64Url.length % 4) % 4);
+  const binary = atob((base64Url + padding).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(binary, char => char.charCodeAt(0));
+}
+$('#btn-push-toggle').addEventListener('click', async () => {
+  const button = $('#btn-push-toggle');
+  if (!admin || !pushSupported()) return;
+  if (isIOSHomeScreenRequired()) return toast('أضف التطبيق إلى الشاشة الرئيسية أولًا على iPhone أو iPad', false);
+  pushBusy = true; button.disabled = true;
+  const oldLabel = button.textContent;
+  button.textContent = 'جارٍ تحديث الإعداد…';
+  try {
+    // اطلب الإذن مباشرة من ضغطة المستخدم، قبل أي انتظار شبكي، خصوصًا على iOS.
+    if (Notification.permission === 'default'){
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') throw new Error('لم يُمنح إذن الإشعارات');
+    }
+    if (Notification.permission !== 'granted') throw new Error('إذن الإشعارات غير متاح');
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+    if (subscription){
+      const { data: active, error: statusError } = await sb.rpc('has_push_subscription', { p_endpoint: subscription.endpoint });
+      if (statusError) throw statusError;
+      if (active){
+        const { error: deleteError } = await sb.rpc('delete_push_subscription', { p_endpoint: subscription.endpoint });
+        if (deleteError) throw deleteError;
+        await subscription.unsubscribe();
+        toast('تم إيقاف إشعارات هذا الجهاز');
+        return;
+      }
+    }
+    if (!subscription){
+      if (!pushVapidPublicKey) throw new Error('خدمة الإشعارات غير مهيأة على الخادم بعد');
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: vapidKeyBytes(pushVapidPublicKey)
+      });
+    }
+    const details = subscription.toJSON();
+    if (!details.endpoint || !details.keys?.p256dh || !details.keys?.auth) throw new Error('بيانات اشتراك المتصفح غير مكتملة');
+    const { error: saveError } = await sb.rpc('save_push_subscription', {
+      p_endpoint: details.endpoint,
+      p_p256dh: details.keys.p256dh,
+      p_auth: details.keys.auth
+    });
+    if (saveError){
+      await subscription.unsubscribe();
+      throw saveError;
+    }
+    toast('تم تفعيل إشعارات المدير على هذا الجهاز');
+  } catch (error){
+    const message = error instanceof Error ? error.message : 'خطأ غير معروف';
+    toast('تعذر تحديث الإشعارات: ' + message, false);
+  } finally {
+    pushBusy = false;
+    button.textContent = oldLabel;
+    await refreshPushSettings();
+  }
+});
+async function pushUnlink(){
+  try {
+    if (!admin || !pushSupported()) return;
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = await reg?.pushManager.getSubscription();
+    if (!sub) return;
+    await sb.rpc('delete_push_subscription', { p_endpoint: sub.endpoint });
+    await sub.unsubscribe();
+  } catch { /* لا نمنع الخروج */ }
+}
+navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.type === 'push-resync' && admin) { pushInit = false; refreshPushSettings(); } });
 
 
 document.title = STORE_NAME;
@@ -411,6 +529,7 @@ function goTo(name){
 document.querySelectorAll('#bottom-nav button').forEach(b => b.onclick = () => goTo(b.dataset.screen));
 /* الخروج من ملف العميل: يستهلك مدخل السجل الذي أضافه openCustomer، فيعمل زر الرجوع في الهاتف كزر الشاشة */
 function leaveCustomer(){
+  if (!detailCustomerId) return;
   detailCustomerId = null;
   if (history.state && history.state.screen === 'customer') history.back();
   else { goTo('customers'); render(); }
@@ -432,15 +551,17 @@ $('#btn-login').onclick = async () => {
 };
 ['#username','#pass'].forEach(s => $(s).onkeydown = e => { if (e.key === 'Enter') $('#btn-login').click(); });
 $('#btn-out').onclick = async () => {
+  await pushUnlink();
   if (channel) { await sb.removeChannel(channel); channel = null; }
   await sb.auth.signOut();
 };
+let signedIn = false;
 sb.auth.onAuthStateChange((_e, session) => {
   $('#login').classList.toggle('hidden', !!session);
   $('#app').classList.toggle('hidden', !session);
-  if (session) { goTo('stats'); load(); subscribe(); }
+  if (session) { if (!signedIn) goTo('stats'); signedIn = true; load(); subscribe(); }
   else {
-    C = []; I = []; Y = []; U = []; state = {}; admin = false; detailCustomerId = null;
+    signedIn = false; pushInit = false; $('#push-settings').classList.add('hidden'); C = []; I = []; Y = []; U = []; state = {}; admin = false; detailCustomerId = null;
     for (const k in TX) delete TX[k];
     ['#kpi','#recent-tx','#top-debtors','#customers','#users','#customer-tx','#profile-head'].forEach(s => { const e = $(s); if (e) e.innerHTML = ''; });
     if (channel) { sb.removeChannel(channel); channel = null; }
@@ -477,8 +598,7 @@ async function loadNow(){
   if (!session) return;
   const [c, i, y, me, s] = await Promise.all([
     sb.from('customer_balances').select('*').order('name'),
-    sb.from('invoices').select('id,total,note,kind,created_at,voided_at,void_reason,edited_at,customer_id,customers(name),profiles!invoices_created_by_fkey(name)').order('id',{ascending:false}).limit(200),
-    sb.from('payments').select('id,amount,note,created_at,voided_at,void_reason,edited_at,customer_id,customers(name),profiles!payments_created_by_fkey(name)').order('id',{ascending:false}).limit(200),
+    ...feedQueries(),
     sb.from('profiles').select('name,role').eq('id', session.user.id).maybeSingle(),
     sb.from('store_stats').select('*').single()
   ]);
@@ -489,6 +609,8 @@ async function loadNow(){
   admin = me.data?.role === 'admin';
   $('#nav-users').classList.toggle('hidden', !admin);
   $('#credit-limit-field').classList.toggle('hidden', !admin);
+  $('#push-settings').classList.toggle('hidden', !admin);
+  if (admin && !pushInit) { pushInit = true; refreshPushSettings(); }
   $('#me').textContent = (me.data?.name || '') + (admin ? ' (مدير)' : ' (بائع)');
   render();
   // إن كان ملف عميل مفتوحاً: حدّث كشفه من جديد (دون إفراغ الشاشة)
@@ -651,6 +773,13 @@ function feedRange(){
   return { from, to };
 }
 
+function feedQueries(){
+  const fc = $('#feed-customer')?.value || '', { from, to } = feedRange();
+  let qi = sb.from('invoices').select('id,total,note,kind,created_at,voided_at,void_reason,edited_at,customer_id,customers(name),profiles!invoices_created_by_fkey(name)').order('id',{ascending:false}).limit(200);
+  let qp = sb.from('payments').select('id,amount,note,created_at,voided_at,void_reason,edited_at,customer_id,customers(name),profiles!payments_created_by_fkey(name)').order('id',{ascending:false}).limit(200);
+  for (const f of [q => fc ? q.eq('customer_id', fc) : q, q => from ? q.gte('created_at', from.toISOString()) : q, q => to ? q.lt('created_at', to.toISOString()) : q]) { qi = f(qi); qp = f(qp); }
+  return [qi, qp];
+}
 function renderFeed(){
   const box = $('#recent-tx');
   if (!box) return;
@@ -671,13 +800,14 @@ function renderFeed(){
     (!type || (type === 'payment' ? r.src === 'pay' : type === 'invoice' ? r.kind === 'invoice' : type === 'disbursement' ? r.kind === 'disbursement' : true)) && inRange(r.d))
    .sort((a, b) => new Date(b.d) - new Date(a.d));
   const summary = $('#feed-summary');
-  if (summary) summary.textContent = `عدد الحركات المعروضة: ${rows.length} · ${from ? (to ? 'التاريخ المحدد' : 'من ' + from.toLocaleDateString('ar')) : 'كل التواريخ'}`;
+  if (summary) summary.textContent = `عدد الحركات المعروضة: ${rows.length} (حتى 200 لكل نوع) · ${from ? (to ? 'التاريخ المحدد' : 'من ' + from.toLocaleDateString('ar')) : 'كل التواريخ'}`;
   box.innerHTML = rows.length ? rows.map(r => txCardHTML(r)).join('') : '<div class="empty">لا توجد حركات مطابقة.</div>';
 }
 
-['#feed-customer', '#feed-type'].forEach(s => $(s).onchange = renderFeed);
-$('#feed-days').onchange = () => { if ($('#feed-days').value !== '0') $('#feed-date').value = ''; renderFeed(); };
-$('#feed-date').onchange = () => { if ($('#feed-date').value) $('#feed-days').value = '0'; renderFeed(); };
+$('#feed-type').onchange = renderFeed;
+$('#feed-customer').onchange = load;
+$('#feed-days').onchange = () => { if ($('#feed-days').value !== '0') $('#feed-date').value = ''; load(); };
+$('#feed-date').onchange = () => { if ($('#feed-date').value) $('#feed-days').value = '0'; load(); };
 
 function openInvoice(id){
   const r = I.find(x => String(x.id) === String(id));
@@ -690,7 +820,7 @@ function openInvoice(id){
       <div>العميل: <b>${esc(r.customers?.name || '—')}</b></div><div>البائع: <b>${esc(r.profiles?.name || '—')}</b></div>
       <div>التاريخ: <b>${esc(dt(r.created_at))}</b></div><div>الحالة: <b>${r.voided_at ? 'ملغاة' : 'نشطة'}${r.edited_at ? ' · معدلة' : ''}</b></div>
     </div>
-    ${admin && !r.voided_at ? `<div class="card ${r.edited_at ? 'edited' : ''}" style="margin:0 0 10px;background:var(--soft)"><label>قيمة الفاتورة<input id="edit-invoice-amount" type="number" min="0.01" step="0.01" inputmode="decimal" value="${esc(r.total)}"></label></div>` : `<div class="card ${r.edited_at ? 'edited' : ''}" style="margin:0 0 10px;background:var(--soft)"><div class="meta">القيمة</div><div style="font-size:28px;font-weight:800;color:var(--bad)">${fmt(r.total)}</div></div>`}
+    ${admin && !r.voided_at ? `<div class="card ${r.edited_at ? 'edited' : ''}" style="margin:0 0 10px;background:var(--soft)"><label>قيمة الفاتورة<input id="edit-invoice-amount" type="number" min="0.01" step="0.01" inputmode="decimal" value="${esc(r.total)}"></label></div>` : `<div class="card ${r.edited_at ? 'edited' : ''}" style="margin:0 0 10px;background:var(--soft)"><div class="meta">القيمة</div><div style="font-size:28px;font-weight:800;color:var(${r.kind === 'disbursement' ? '--ok' : '--bad'})">${fmt(r.total)}</div></div>`}
     <div class="card" style="margin:0 0 14px;background:var(--soft)">${admin && !r.voided_at ? `<label>ملاحظة الفاتورة<textarea id="edit-invoice-note">${esc(r.note || '')}</textarea></label>` : `<div class="meta">الملاحظة</div><div style="white-space:pre-wrap">${esc(r.note || '—')}</div>`}
       ${r.voided_at && r.void_reason ? `<div class="meta" style="margin-top:8px">سبب الإلغاء: ${esc(r.void_reason)}</div>` : ''}</div>
     ${!r.voided_at ? `<div class="row2">${admin ? `<button class="btn" data-save-invoice="${r.id}">حفظ التعديل</button>` : '<span></span>'}<button class="btn del" data-void="${r.id}">إلغاء الفاتورة</button></div>` : ''}`;
@@ -835,7 +965,7 @@ async function printStatement(customerId, btn){
     // النوع والقيمة والأثر على الرصيد مأخوذة كما هي من buildStatement دون إعادة حساب
     const tableRows = st.rows.map(r => {
       const value = r.voided ? '—'
-        : r.type === 'pay' ? `<span class="print-credit">− ${fmt(r.credit)}</span>`
+        : (r.type === 'pay' || r.type === 'settlement') ? `<span class="print-credit">− ${fmt(r.credit)}</span>`
         : `<span class="print-debit">+ ${fmt(r.debit)}</span>`;
       return `<tr class="${r.voided ? 'print-void' : ''}">
         <td>${esc(customer.name)}</td>
@@ -1019,6 +1149,8 @@ async function run(p, okMsg, after){
   if (typeof after === 'function') after();
 }
 
+
+$('#inv-kind').onchange = hint;
 
 $('#btn-save').onclick = async () => {
   const customer = $('#inv-customer').value, amount = num($('#inv-amount').value);
