@@ -241,7 +241,7 @@
           <label>نوع الفاتورة<select id="inv-kind"><option value="invoice">فاتورة دين</option><option value="disbursement">فاتورة سداد</option></select></label>
           <div class="customer-picker" id="invoice-customer-picker">
             <label for="inv-customer-search">العميل</label>
-            <input id="inv-customer-search" type="search" placeholder="اكتب جزءاً من اسم العميل" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="inv-customer-options">
+            <input id="inv-customer-search" type="search" placeholder="ابحث باسم العميل أو رقمه" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="inv-customer-options">
             <input id="inv-customer" type="hidden" value="">
             <div id="inv-customer-options" class="customer-options hidden" role="listbox" aria-label="نتائج العملاء"></div>
           </div>
@@ -269,7 +269,7 @@
         <b id="total-debt" style="font-size:18px;color:var(--bad)">0.00</b>
       </div>
       <div class="card">
-        <label>بحث عن عميل<input id="customer-search" type="search" placeholder="اكتب جزءاً من اسم العميل" autocomplete="off"></label>
+        <label>بحث عن عميل<input id="customer-search" type="search" placeholder="ابحث باسم العميل أو رقمه" autocomplete="off"></label>
       </div>
       <div class="cust-list stack" id="customers"></div>
     </section>
@@ -858,6 +858,23 @@ function closeInvoice(){ $('#invoice-modal').classList.add('hidden'); }
 
 
 /* ---- اختيارات الفاتورة الجديدة ---- */
+function normalizeCustomerSearch(value){
+  return String(value ?? '').trim().toLocaleLowerCase('ar')
+    .replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/^#\s*/, '').trim();
+}
+function customerMatchesSearch(c, query){
+  const q = normalizeCustomerSearch(query);
+  if (!q) return true;
+  const name = normalizeCustomerSearch(c?.name || '');
+  const number = normalizeCustomerSearch(c?.customer_no ?? '');
+  return name.includes(q) || (!!number && number.startsWith(q));
+}
+function customerNoLabel(c){
+  const n = Number(c?.customer_no);
+  return Number.isSafeInteger(n) && n > 0 ? `#${n}` : '';
+}
 let customerOptionsOpen = false, customerActiveIndex = -1;
 function closeCustomerOptions(){
   customerOptionsOpen = false; customerActiveIndex = -1;
@@ -867,15 +884,15 @@ function closeCustomerOptions(){
 function renderCustomerOptions(){
   const input = $('#inv-customer-search'), box = $('#inv-customer-options');
   if (!customerOptionsOpen){ box.classList.add('hidden'); input.setAttribute('aria-expanded', 'false'); return; }
-  const query = input.value.trim().toLocaleLowerCase('ar');
-  const matches = query ? C.filter(c => String(c.name || '').toLocaleLowerCase('ar').includes(query)) : C;
+  const query = normalizeCustomerSearch(input.value);
+  const matches = query ? C.filter(c => customerMatchesSearch(c, query)) : C;
   box.replaceChildren(); customerActiveIndex = -1; input.removeAttribute('aria-activedescendant');
   if (!matches.length){
     const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'لا يوجد عميل مطابق للبحث.'; box.appendChild(empty);
   } else matches.forEach((c, index) => {
     const option = document.createElement('div'); option.className = 'customer-option'; option.id = `inv-customer-option-${index}`;
     option.setAttribute('role', 'option'); option.setAttribute('aria-selected', 'false'); option.dataset.customerOption = String(c.id);
-    const name = document.createElement('span'); name.className = 'customer-option-name'; name.textContent = c.name || 'عميل بلا اسم';
+    const no = customerNoLabel(c), name = document.createElement('span'); name.className = 'customer-option-name'; name.textContent = `${c.name || 'عميل بلا اسم'}${no ? ` ${no}` : ''}`;
     const debt = Number(c.debt || 0), amount = document.createElement('span');
     amount.className = 'customer-option-debt' + (debt > 0 ? ' debt' : ''); amount.textContent = debt > 0 ? `الدين ${fmt(debt)}` : 'بلا دين';
     option.append(name, amount); box.appendChild(option);
@@ -943,13 +960,13 @@ document.addEventListener('focusin', e => {
 function renderCustomersList(){
   // الرصيد السالب يعني فائضاً للعميل، لذلك يُحسب ضمن الإجمالي الصافي.
   $('#total-debt').textContent = fmt(C.reduce((s, c) => s + Number(c.debt || 0), 0));
-  const query = ($('#customer-search')?.value || '').trim().toLocaleLowerCase('ar');
-  const visible = query ? C.filter(c => String(c.name || '').toLocaleLowerCase('ar').includes(query)) : C;
+  const query = normalizeCustomerSearch($('#customer-search')?.value || '');
+  const visible = query ? C.filter(c => customerMatchesSearch(c, query)) : C;
   $('#customers').innerHTML = visible.length ? visible.map(c => {
-    const debt = Number(c.debt);
+    const debt = Number(c.debt), no = customerNoLabel(c);
     return `<div class="cust-card" data-open-customer="${c.id}">
       <div class="top-row">
-        <span class="cname">${esc(c.name)}</span>
+        <span class="cname">${esc(c.name)}${no ? ` <bdi dir="ltr">${no}</bdi>` : ''}</span>
         <span class="cdebt ${debt > 0 ? 'debt' : 'ok'}">${fmt(debt)}</span>
       </div>
       <div class="meta">حد الائتمان: ${Number(c.credit_limit) > 0 ? fmt(c.credit_limit) : 'بلا حد'}</div>
@@ -968,12 +985,12 @@ $('#customer-search').oninput = renderCustomersList;
 function renderCustomerDetail(id){
   const c = C.find(x => String(x.id) === String(id));
   if (!c) { leaveCustomer(); return; }
-  const debt = Number(c.debt);
+  const debt = Number(c.debt), no = customerNoLabel(c);
   const lim = Number(c.credit_limit);
 
 
   $('#profile-head').innerHTML = `
-    <div class="pname">${esc(c.name)}</div>
+    <div class="pname">${esc(c.name)}${no ? ` <bdi dir="ltr">${no}</bdi>` : ''}</div>
     <div class="pbal">${fmt(debt)}</div>
     <div class="pmeta">${lim > 0 ? `حد الائتمان: ${fmt(lim)} · المتاح: ${fmt(lim - debt)}` : 'بلا حد ائتمان'}</div>
     <div class="profile-actions">
@@ -1147,13 +1164,15 @@ async function printStatement(customerId, btn){
   if (btn) { btn.disabled = true; btn.textContent = 'جارٍ التجهيز…'; }
   try {
     const [cRes, iRes, yRes] = await Promise.all([
-      sb.from('customers').select('id,name,phone').eq('id', customerId).single(),
+      sb.from('customers').select('id,name,phone,customer_no').eq('id', customerId).single(),
       fetchAll('invoices', TX_INV, customerId), fetchAll('payments', TX_PAY, customerId)
     ]);
     if (cRes.error) return toast('تعذّر تجهيز كشف الحساب: ' + (cRes.error.message || 'خطأ غير معروف'), false);
     if (!cRes.data) return toast('العميل غير موجود', false);
     if (!iRes.complete || !yRes.complete) return toast('تعذّر جلب كشف الحساب كاملاً — لم تُنشأ الصور', false);
-    const st = buildStatement(iRes.rows, yRes.rows), customer = cRes.data, p = palette();
+    const st = buildStatement(iRes.rows, yRes.rows), customer = cRes.data;
+    const customerLabel = [customer.name, customerNoLabel(customer)].filter(Boolean).join(' ');
+    const p = palette();
     if (document.fonts?.ready) await document.fonts.ready;
     const stamp = await loadStamp(), cols = [290, 120, 100, 110, 132];
     const probe = newCanvas(10).x, noteFont = `400 14px ${IMG_FONT}`;
@@ -1177,7 +1196,7 @@ async function printStatement(customerId, btn){
       if (pg) await finishPage();
       pg = newCanvas(IMG_H); x = pg.x; y = drawHead(x, 'كشف حساب') + 8;
       if (first){
-        [`العميل: ${customer.name}`, `الهاتف: ${customer.phone || '—'}`, `الرصيد الحالي: ${fmt(st.finalBalance)}`, `تاريخ الإصدار: ${tripoliDate(new Date())}`]
+        [`العميل: ${customerLabel}`, `الهاتف: ${customer.phone || '—'}`, `الرصيد الحالي: ${fmt(st.finalBalance)}`, `تاريخ الإصدار: ${tripoliDate(new Date())}`]
           .forEach(s => { T(x, s, IMG_W - 44, y + 14, { s: 16 }); y += 30; });
         y += 8;
       }
@@ -1205,9 +1224,9 @@ async function printStatement(customerId, btn){
     if (y + 270 > IMG_H - 30) await begin(false, false);
     y += 24; drawAmountBox(x, IMG_W - 24 - 240, y, 'الرصيد النهائي', fmt(st.finalBalance)); drawSign(x, y + 110, stamp);
     await finishPage();
-    await showImages(blobs, `${customer.name} - كشف حساب`, {
+    await showImages(blobs, `${customerLabel} - كشف حساب`, {
       phone: customer.phone,
-      text: `${STORE_NAME} — كشف حساب ${customer.name}، الرصيد الحالي ${fmt(st.finalBalance)}`
+      text: `${STORE_NAME} — كشف حساب ${customerLabel}، الرصيد الحالي ${fmt(st.finalBalance)}`
     });
   } catch (err) {
     toast('تعذّر تجهيز كشف الحساب: ' + (err?.message || err), false);
