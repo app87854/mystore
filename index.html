@@ -98,6 +98,11 @@
 
 
   /* ====== قائمة العملاء ====== */
+  .customer-search-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+  .customer-search-head label{display:block;margin:0}
+  .customer-sort-toggle{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:32px;padding:5px 9px;border:1px solid var(--line);border-radius:999px;background:var(--soft);color:var(--main);font-size:12px;font-weight:700;white-space:nowrap}
+  .customer-sort-toggle:focus-visible{outline:2px solid var(--main);outline-offset:2px}
+  .customer-sort-toggle[aria-pressed="true"]{border-color:var(--main);background:rgba(15,92,77,.1)}
   .cust-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;cursor:pointer;transition:transform .1s}
   .cust-card:active{transform:scale(.99)}
   .cust-card .top-row{display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -269,7 +274,13 @@
         <b id="total-debt" style="font-size:18px;color:var(--bad)">0.00</b>
       </div>
       <div class="card">
-        <label>بحث عن عميل<input id="customer-search" type="search" placeholder="ابحث باسم العميل أو رقمه" autocomplete="off"></label>
+        <div class="customer-search-head">
+          <label for="customer-search">بحث عن عميل</label>
+          <button id="customer-sort" class="customer-sort-toggle" type="button" data-mode="number" aria-pressed="false" aria-label="الترتيب الحالي: الرقم التسلسلي. اضغط للتبديل إلى أعلى رصيد دين">
+            <span aria-hidden="true">↕</span><span id="customer-sort-label">الرقم</span>
+          </button>
+        </div>
+        <input id="customer-search" type="search" placeholder="ابحث باسم العميل أو رقمه" autocomplete="off" aria-label="بحث عن عميل">
       </div>
       <div class="cust-list stack" id="customers"></div>
     </section>
@@ -961,7 +972,16 @@ function renderCustomersList(){
   // الرصيد السالب يعني فائضاً للعميل، لذلك يُحسب ضمن الإجمالي الصافي.
   $('#total-debt').textContent = fmt(C.reduce((s, c) => s + Number(c.debt || 0), 0));
   const query = normalizeCustomerSearch($('#customer-search')?.value || '');
-  const visible = query ? C.filter(c => customerMatchesSearch(c, query)) : C;
+  const sortMode = $('#customer-sort')?.dataset.mode || 'number';
+  const matching = query ? C.filter(c => customerMatchesSearch(c, query)) : C;
+  const visible = [...matching].sort((a, b) => {
+    const numberDiff = Number(a.customer_no) - Number(b.customer_no);
+    if (sortMode === 'debt-desc'){
+      const debtDiff = Number(b.debt || 0) - Number(a.debt || 0);
+      if (debtDiff) return debtDiff;
+    }
+    return numberDiff || coll.compare(a.name || '', b.name || '');
+  });
   $('#customers').innerHTML = visible.length ? visible.map(c => {
     const debt = Number(c.debt), no = customerNoLabel(c);
     return `<div class="cust-card" data-open-customer="${c.id}">
@@ -979,6 +999,17 @@ function renderCustomersList(){
 }
 
 $('#customer-search').oninput = renderCustomersList;
+$('#customer-sort').addEventListener('click', () => {
+  const button = $('#customer-sort');
+  const debtFirst = button.dataset.mode !== 'debt-desc';
+  button.dataset.mode = debtFirst ? 'debt-desc' : 'number';
+  button.setAttribute('aria-pressed', String(debtFirst));
+  button.setAttribute('aria-label', debtFirst
+    ? 'الترتيب الحالي: أعلى رصيد دين. اضغط للتبديل إلى الرقم التسلسلي'
+    : 'الترتيب الحالي: الرقم التسلسلي. اضغط للتبديل إلى أعلى رصيد دين');
+  $('#customer-sort-label').textContent = debtFirst ? 'أعلى دين' : 'الرقم';
+  renderCustomersList();
+});
 
 
 /* ---- ملف العميل ---- */
