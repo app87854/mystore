@@ -896,7 +896,15 @@ function renderCustomerOptions(){
   const input = $('#inv-customer-search'), box = $('#inv-customer-options');
   if (!customerOptionsOpen){ box.classList.add('hidden'); input.setAttribute('aria-expanded', 'false'); return; }
   const query = normalizeCustomerSearch(input.value);
-  const matches = query ? C.filter(c => customerMatchesSearch(c, query)) : C;
+  const matching = query ? C.filter(c => customerMatchesSearch(c, query)) : C;
+  const matches = [...matching].sort((a, b) => {
+    const aNo = Number(a.customer_no), bNo = Number(b.customer_no);
+    const aValid = Number.isSafeInteger(aNo) && aNo > 0;
+    const bValid = Number.isSafeInteger(bNo) && bNo > 0;
+    if (aValid && bValid && aNo !== bNo) return aNo - bNo;
+    if (aValid !== bValid) return aValid ? -1 : 1;
+    return coll.compare(a.name || '', b.name || '');
+  });
   box.replaceChildren(); customerActiveIndex = -1; input.removeAttribute('aria-activedescendant');
   if (!matches.length){
     const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'لا يوجد عميل مطابق للبحث.'; box.appendChild(empty);
