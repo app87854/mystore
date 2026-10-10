@@ -1034,6 +1034,7 @@ function renderCustomerDetail(id){
     <div class="pmeta">${lim > 0 ? `حد الائتمان: ${fmt(lim)} · المتاح: ${fmt(lim - debt)}` : 'بلا حد ائتمان'}</div>
     <div class="profile-actions">
       <button class="btn" data-print-statement="${c.id}">حفظ كشف الحساب كصورة</button>
+      <button class="btn alt" data-print-full="${c.id}">حفظ الكشف الكامل</button>
       ${debt > 0 ? `<button class="btn" data-pay="${c.id}">تسديد دفعة</button>` : ''}
       ${admin ? `<button class="btn" data-rename="${c.id}">تعديل الاسم</button>` : ''}
       ${admin ? `<button class="btn" data-limit="${c.id}">تعديل الحد</button>` : ''}
@@ -1197,9 +1198,23 @@ async function showImages(blobs, name, { phone = '', text = '' } = {}){
   $('#img-modal').classList.remove('hidden');
 }
 
-async function printStatement(customerId, btn){
-  btn = btn || document.querySelector(`[data-print-statement="${customerId}"]`);
-  const label = 'حفظ كشف الحساب كصورة';
+/* يبدأ الكشف المختصر بعد آخر حركة دائنة أغلقت الدين؛ لا يغيّر هذا الحساب الأصلي أو بياناته. */
+function sinceSettlement(st){
+  let cut = -1;
+  st.rows.forEach((r, i) => { if (!r.voided && r.credit > 0 && r.balance <= 0) cut = i; });
+  if (cut < 0) return { ...st, periodStart: null };
+  const settlement = st.rows[cut];
+  const opening = {
+    src: 'opening', id: null, d: settlement.d, voided: false, edited: false,
+    type: 'opening', title: 'رصيد مرحّل بعد آخر تسوية', note: null, by: '—',
+    debit: 0, credit: 0, balance: settlement.balance
+  };
+  return { ...st, rows: [opening, ...st.rows.slice(cut + 1)], periodStart: settlement.d };
+}
+
+async function printStatement(customerId, btn, full = false){
+  btn = btn || document.querySelector(full ? `[data-print-full="${customerId}"]` : `[data-print-statement="${customerId}"]`);
+  const label = full ? 'حفظ الكشف الكامل' : 'حفظ كشف الحساب كصورة';
   if (btn) { btn.disabled = true; btn.textContent = 'جارٍ التجهيز…'; }
   try {
     const [cRes, iRes, yRes] = await Promise.all([
@@ -1209,7 +1224,10 @@ async function printStatement(customerId, btn){
     if (cRes.error) return toast('تعذّر تجهيز كشف الحساب: ' + (cRes.error.message || 'خطأ غير معروف'), false);
     if (!cRes.data) return toast('العميل غير موجود', false);
     if (!iRes.complete || !yRes.complete) return toast('تعذّر جلب كشف الحساب كاملاً — لم تُنشأ الصور', false);
-    const st = buildStatement(iRes.rows, yRes.rows), customer = cRes.data;
+    const completeStatement = buildStatement(iRes.rows, yRes.rows);
+    const st = full ? completeStatement : sinceSettlement(completeStatement);
+    const reportTitle = full ? 'كشف حساب كامل' : st.periodStart ? 'كشف حساب منذ آخر تسوية' : 'كشف حساب';
+    const customer = cRes.data;
     const customerLabel = [customer.name, customerNoLabel(customer)].filter(Boolean).join(' ');
     const p = palette();
     if (document.fonts?.ready) await document.fonts.ready;
@@ -1233,7 +1251,7 @@ async function printStatement(customerId, btn){
     };
     const begin = async (first, table = true) => {
       if (pg) await finishPage();
-      pg = newCanvas(IMG_H); x = pg.x; y = drawHead(x, 'كشف حساب') + 8;
+      pg = newCanvas(IMG_H); x = pg.x; y = drawHead(x, reportTitle) + 8;
       if (first){
         [`العميل: ${customerLabel}`, `الهاتف: ${customer.phone || '—'}`, `الرصيد الحالي: ${fmt(st.finalBalance)}`, `تاريخ الإصدار: ${tripoliDate(new Date())}`]
           .forEach(s => { T(x, s, IMG_W - 44, y + 14, { s: 16 }); y += 30; });
@@ -1254,18 +1272,18 @@ async function printStatement(customerId, btn){
       const col = r.voided ? '#6b7280' : '#111', mid = y + rh / 2;
       lines.forEach((s, k) => T(x, s, IMG_W - 32, y + 18 + k * 20, { s: 14, col }));
       const isIn = r.type === 'pay' || r.type === 'settlement';
-      const val = r.voided ? '—' : isIn ? '− ' + fmt(r.credit) : '+ ' + fmt(r.debit);
+      const val = r.voided || r.type === 'opening' ? '—' : isIn ? '− ' + fmt(r.credit) : '+ ' + fmt(r.debit);
       let cx = IMG_W - 24 - cols[0];
-      [[val, r.voided ? col : isIn ? p.ok : p.bad, 800], [tripoliDate(r.d, true), col, 400], [r.by || '—', col, 400], [fmt(r.balance), col, 400]]
+      [[val, r.voided || r.type === 'opening' ? col : isIn ? p.ok : p.bad, 800], [tripoliDate(r.d, true), col, 400], [r.by || '—', col, 400], [fmt(r.balance), col, 400]]
         .forEach(([s, color, w], k) => { T(x, s, cx - cols[k + 1] / 2, mid, { s: 14, col: color, w, al: 'center' }); cx -= cols[k + 1]; });
       x.strokeStyle = p.line; x.lineWidth = 1; x.beginPath(); x.moveTo(24, y + rh); x.lineTo(IMG_W - 24, y + rh); x.stroke(); y += rh;
     }
     if (y + 270 > IMG_H - 30) await begin(false, false);
     y += 24; drawAmountBox(x, IMG_W - 24 - 240, y, 'الرصيد النهائي', fmt(st.finalBalance)); drawSign(x, y + 110, stamp);
     await finishPage();
-    await showImages(blobs, `${customerLabel} - كشف حساب`, {
+    await showImages(blobs, `${customerLabel} - ${reportTitle}`, {
       phone: customer.phone,
-      text: `${STORE_NAME} — كشف حساب ${customerLabel}، الرصيد الحالي ${fmt(st.finalBalance)}`
+      text: `${STORE_NAME} — ${reportTitle} ${customerLabel}، الرصيد الحالي ${fmt(st.finalBalance)}`
     });
   } catch (err) {
     toast('تعذّر تجهيز كشف الحساب: ' + (err?.message || err), false);
@@ -1327,6 +1345,7 @@ document.addEventListener('click', e => {
 
   const g = a => e.target.closest(`[data-${a}]`)?.dataset[a.replace(/-./g, m => m[1].toUpperCase())];
   let v;
+  if ((v = g('print-full'))) return printStatement(v, e.target.closest('[data-print-full]'), true);
   if ((v = g('print-statement'))) return printStatement(v, e.target.closest('[data-print-statement]'));
   if ((v = g('receipt'))) { const [s, id] = v.split(':'); return printReceipt(s, id); }
   if ((v = g('pay'))) {
