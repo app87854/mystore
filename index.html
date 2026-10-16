@@ -1049,7 +1049,7 @@ function renderCustomerDetail(id){
     return;
   }
 
-  $('#customer-tx').innerHTML = src.st.rows.length ? src.st.rows.map(r => {
+  $('#customer-tx').innerHTML = src.st.rows.length ? [...src.st.rows].reverse().map(r => {
     const amt = r.type === 'pay' || r.type === 'settlement'
       ? `<span style="color:var(--ok)">− ${fmt(r.credit)}</span>`
       : r.voided ? '<span class="hint">ملغاة</span>' : `<span style="color:var(--bad)">+ ${fmt(r.debit)}</span>`;
