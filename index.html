@@ -178,6 +178,11 @@
   .img-page{width:100%;max-width:520px;margin:0 auto;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)}
   .img-page img{display:block;width:100%;height:auto;background:#fff}
   .img-page-actions{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;background:var(--soft);color:var(--mute);font-size:12px}
+  .amount-keypad{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:7px;background:var(--soft);border:1px solid var(--line);border-radius:12px;direction:ltr}
+  .amount-keypad button{min-height:58px;border:1px solid var(--line);border-radius:10px;background:#f2f8f5;color:var(--main);font-size:23px;font-weight:700;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+  .amount-keypad button:active{background:#dceee7;transform:scale(.98)}
+  .amount-keypad button.keypad-delete{background:var(--main);color:#fff;border-color:var(--main)}
+  .amount-keypad button:focus-visible{outline:3px solid var(--main);outline-offset:2px}
 </style>
 </head>
 <body>
@@ -251,7 +256,13 @@
             <div id="inv-customer-options" class="customer-options hidden" role="listbox" aria-label="نتائج العملاء"></div>
           </div>
           <div class="hint" id="cust-hint"></div>
-          <label>القيمة<input id="inv-amount" type="number" min="0" step="any" inputmode="decimal" placeholder="0.00"></label>
+          <label>القيمة<input id="inv-amount" type="text" inputmode="none" dir="ltr" autocomplete="off" placeholder="0.00" aria-label="قيمة الفاتورة"></label>
+          <div class="amount-keypad" id="inv-keypad" role="group" aria-label="لوحة مفاتيح مبلغ الفاتورة">
+            <button type="button" data-amount-key="1" aria-label="١">1</button><button type="button" data-amount-key="2" aria-label="٢">2</button><button type="button" data-amount-key="3" aria-label="٣">3</button>
+            <button type="button" data-amount-key="4" aria-label="٤">4</button><button type="button" data-amount-key="5" aria-label="٥">5</button><button type="button" data-amount-key="6" aria-label="٦">6</button>
+            <button type="button" data-amount-key="7" aria-label="٧">7</button><button type="button" data-amount-key="8" aria-label="٨">8</button><button type="button" data-amount-key="9" aria-label="٩">9</button>
+            <button type="button" class="keypad-delete" data-amount-action="backspace" aria-label="حذف آخر رقم">⌫</button><button type="button" data-amount-key="0" aria-label="٠">0</button><button type="button" data-amount-action="decimal" aria-label="فاصلة عشرية">٫</button>
+          </div>
           <label>المشتريات / البيان<textarea id="inv-note" placeholder="مثال: 2 كيس سكر، 1 زيت"></textarea></label>
           <button id="btn-save" class="btn" style="padding:14px;font-size:16px">حفظ الفاتورة</button>
         </div>
@@ -1423,6 +1434,35 @@ async function run(p, okMsg, after){
 
 
 $('#inv-kind').onchange = hint;
+
+$('#inv-keypad').addEventListener('pointerdown', e => {
+  if (e.target.closest('button')) e.preventDefault();
+});
+$('#inv-keypad').addEventListener('click', e => {
+  const button = e.target.closest('button');
+  if (!button) return;
+  const input = $('#inv-amount'), value = input.value;
+  let start = input.selectionStart ?? value.length, end = input.selectionEnd ?? value.length;
+  let insertion = button.dataset.amountKey;
+  if (button.dataset.amountAction === 'backspace') {
+    if (start === end && start > 0) start--;
+    input.value = value.slice(0, start) + value.slice(end);
+  } else {
+    if (button.dataset.amountAction === 'decimal') {
+      if (value.includes('.')) return;
+      insertion = start === 0 && end === 0 ? '0.' : '.';
+    }
+    if (!insertion) return;
+    const next = value.slice(0, start) + insertion + value.slice(end);
+    const decimalAt = next.indexOf('.');
+    if (decimalAt >= 0 && next.length - decimalAt - 1 > 2) return;
+    input.value = next;
+    start += insertion.length;
+  }
+  input.focus({ preventScroll: true });
+  input.setSelectionRange(start, start);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+});
 
 $('#btn-save').onclick = async () => {
   const customer = $('#inv-customer').value, amount = num($('#inv-amount').value);
