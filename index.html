@@ -1465,8 +1465,14 @@ $('#inv-keypad').addEventListener('click', e => {
 });
 
 $('#btn-save').onclick = async () => {
-  const customer = $('#inv-customer').value, amount = num($('#inv-amount').value);
+  const customer = $('#inv-customer').value;
+  const rawAmount = String($('#inv-amount').value ?? '').trim()
+    .replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/٫/g, '.');
   if (!customer) return toast('اختر العميل', false);
+  if (!/^\d+(?:\.\d{1,2})?$/.test(rawAmount)) return toast('أدخل قيمة صحيحة', false);
+  const amount = Number(rawAmount);
   if (!(amount > 0)) return toast('أدخل قيمة صحيحة', false);
   const b = $('#btn-save'); b.disabled = true;
   const kind = $('#inv-kind').value;
