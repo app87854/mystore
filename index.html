@@ -379,7 +379,6 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const fmt = n => (Number(n) || 0).toFixed(2);
-const balanceLabel = n => Number(n) < 0 ? `رصيد دائن ${fmt(Math.abs(Number(n)))}` : fmt(n);
 const num = s => Number(String(s ?? '').replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/٫/g, '.').replace(/[٬,\s]/g, ''));
 const dt = d => new Date(d).toLocaleString('ar', { dateStyle:'short', timeStyle:'short' });
 const coll = new Intl.Collator('ar', { numeric: true, sensitivity: 'base' });
@@ -928,7 +927,7 @@ function renderCustomerOptions(){
     const no = customerNoLabel(c), name = document.createElement('span'); name.className = 'customer-option-name'; name.textContent = `${c.name || 'عميل بلا اسم'}${no ? ` ${no}` : ''}`;
     const debt = Number(c.debt || 0), amount = document.createElement('span');
     amount.className = 'customer-option-debt' + (debt > 0 ? ' debt' : debt < 0 ? ' credit' : '');
-    amount.textContent = debt > 0 ? `الدين ${fmt(debt)}` : debt < 0 ? `رصيد دائن ${fmt(-debt)}` : 'بلا دين';
+    amount.textContent = fmt(debt);
     option.append(name, amount); box.appendChild(option);
   });
   box.classList.remove('hidden'); input.setAttribute('aria-expanded', 'true');
@@ -958,7 +957,7 @@ function hint(){
   const c = C.find(x => String(x.id) === String($('#inv-customer').value)), h = $('#cust-hint');
   if (!c) return h.textContent = '';
   const lim = Number(c.credit_limit), debt = Number(c.debt);
-  const balanceText = debt < 0 ? `${balanceLabel(debt)} (يُخصم من الفواتير القادمة)` : `الدين الحالي ${fmt(debt)}`;
+  const balanceText = fmt(debt);
   h.textContent = `${balanceText} · حد الائتمان ${lim > 0 ? fmt(lim) : 'بلا حد'}` + (lim > 0 ? ` · المتاح ${fmt(lim - debt)}` : '');
 }
 $('#inv-customer-search').addEventListener('focus', () => { customerOptionsOpen = true; renderCustomerOptions(); });
@@ -1009,7 +1008,7 @@ function renderCustomersList(){
   $('#customers').innerHTML = visible.length ? visible.map(c => {
     const debt = Number(c.debt), no = customerNoLabel(c);
     const balanceClass = debt > 0 ? 'debt' : debt < 0 ? 'credit' : 'ok';
-    const balanceText = balanceLabel(debt);
+    const balanceText = fmt(debt);
     return `<div class="cust-card" data-open-customer="${c.id}">
       <div class="top-row">
         <span class="cname">${esc(c.name)}${no ? ` <bdi dir="ltr">${no}</bdi>` : ''}</span>
@@ -1048,7 +1047,7 @@ function renderCustomerDetail(id){
 
   $('#profile-head').innerHTML = `
     <div class="pname">${esc(c.name)}${no ? ` <bdi dir="ltr">${no}</bdi>` : ''}</div>
-    <div class="pbal">${balanceLabel(debt)}</div>
+    <div class="pbal">${fmt(debt)}</div>
     <div class="pmeta">${lim > 0 ? `حد الائتمان: ${fmt(lim)} · المتاح: ${fmt(lim - debt)}` : 'بلا حد ائتمان'}</div>
     <div class="profile-actions">
       <button class="btn" data-print-statement="${c.id}">حفظ كشف الحساب كصورة</button>
@@ -1075,7 +1074,7 @@ function renderCustomerDetail(id){
       <div class="t1"><span>${esc(r.title)}</span><span>${amt}</span></div>
       <div class="t2"><span>${esc(dt(r.d))}</span><span>${esc(r.by || '—')}</span></div>
       ${r.note ? `<div class="note">${esc(r.note)}</div>` : ''}
-      <div class="run"><span>الرصيد بعد الحركة</span><b>${balanceLabel(r.balance)}</b></div>
+      <div class="run"><span>الرصيد بعد الحركة</span><b>${fmt(r.balance)}</b></div>
       ${(r.type === 'pay' || r.type === 'settlement' || (r.src === 'inv' && !r.voided) || (r.src === 'pay' && !r.voided)) ? `<div class="actions">
         ${r.type === 'pay' || r.type === 'settlement' ? `<button class="btn alt sm" data-receipt="${r.src}:${r.id}">حفظ الإيصال كصورة</button>` : ''}
         ${r.src === 'pay' && !r.voided && admin ? `<button class="btn alt sm" data-edit-payment="${r.id}">تعديل التسديد</button>` : ''}
@@ -1271,7 +1270,7 @@ async function printStatement(customerId, btn, full = false){
       if (pg) await finishPage();
       pg = newCanvas(IMG_H); x = pg.x; y = drawHead(x, reportTitle) + 8;
       if (first){
-        [`العميل: ${customerLabel}`, `الهاتف: ${customer.phone || '—'}`, `الرصيد الحالي: ${balanceLabel(st.finalBalance)}`, `تاريخ الإصدار: ${tripoliDate(new Date())}`]
+        [`العميل: ${customerLabel}`, `الهاتف: ${customer.phone || '—'}`, `الرصيد الحالي: ${fmt(st.finalBalance)}`, `تاريخ الإصدار: ${tripoliDate(new Date())}`]
           .forEach(s => { T(x, s, IMG_W - 44, y + 14, { s: 16 }); y += 30; });
         y += 8;
       }
@@ -1297,11 +1296,11 @@ async function printStatement(customerId, btn, full = false){
       x.strokeStyle = p.line; x.lineWidth = 1; x.beginPath(); x.moveTo(24, y + rh); x.lineTo(IMG_W - 24, y + rh); x.stroke(); y += rh;
     }
     if (y + 270 > IMG_H - 30) await begin(false, false);
-    y += 24; drawAmountBox(x, IMG_W - 24 - 240, y, st.finalBalance < 0 ? 'الرصيد الدائن' : 'الرصيد النهائي', fmt(Math.abs(st.finalBalance))); drawSign(x, y + 110, stamp);
+    y += 24; drawAmountBox(x, IMG_W - 24 - 240, y, 'الرصيد النهائي', fmt(st.finalBalance)); drawSign(x, y + 110, stamp);
     await finishPage();
     await showImages(blobs, `${customerLabel} - ${reportTitle}`, {
       phone: customer.phone,
-      text: `${STORE_NAME} — ${reportTitle} ${customerLabel}، ${balanceLabel(st.finalBalance)}`
+      text: `${STORE_NAME} — ${reportTitle} ${customerLabel}، الرصيد الحالي ${fmt(st.finalBalance)}`
     });
   } catch (err) {
     toast('تعذّر تجهيز كشف الحساب: ' + (err?.message || err), false);
@@ -1320,13 +1319,13 @@ async function printReceipt(src, id){
     if (document.fonts?.ready) await document.fonts.ready;
     const stamp = await loadStamp(), isIn = r.src === 'pay' || r.type === 'settlement';
     const title = r.type === 'settlement' ? 'فاتورة سداد' : 'إيصال قبض';
-    const rows = [`الرقم: ${r.id}`, `التاريخ: ${tripoliDate(r.d)}`, `العميل: ${c.name}`, `البائع: ${r.by || '—'}`, `الرصيد بعد الحركة: ${balanceLabel(r.balance)}`];
+    const rows = [`الرقم: ${r.id}`, `التاريخ: ${tripoliDate(r.d)}`, `العميل: ${c.name}`, `البائع: ${r.by || '—'}`, `الرصيد بعد الحركة: ${fmt(r.balance)}`];
     const note = r.note ? wrapText(newCanvas(10).x, 'البيان: ' + r.note, IMG_W - 88, `400 17px ${IMG_FONT}`) : [];
     const n = rows.length + note.length, pg = newCanvas(500 + n * 36), x = pg.x;
     let y = drawHead(x, title) + 20;
     [...rows, ...note].forEach(s => { T(x, s, IMG_W - 44, y + 18, { s: 17 }); y += 36; });
     y += 20; drawAmountBox(x, (IMG_W - 240) / 2, y, 'المبلغ', fmt(isIn ? r.credit : r.debit));
-    T(x, isIn ? 'طُرح المبلغ من رصيد العميل؛ وأي فائض يُرحّل رصيداً دائناً.' : 'أضيف المبلغ المذكور أعلاه إلى دين العميل.', IMG_W - 44, y + 116, { s: 16 });
+    T(x, isIn ? 'طُرح المبلغ المذكور من رصيد الحساب.' : 'أضيف المبلغ المذكور أعلاه إلى دين العميل.', IMG_W - 44, y + 116, { s: 16 });
     drawSign(x, y + 150, stamp);
     const blob = await toBlob(pg.c); pg.c.width = 0; pg.c.height = 0;
     await showImages([blob], `${c.name} - ${title} ${r.id}`, {
@@ -1368,7 +1367,7 @@ document.addEventListener('click', e => {
   if ((v = g('receipt'))) { const [s, id] = v.split(':'); return printReceipt(s, id); }
   if ((v = g('pay'))) {
     const c = C.find(x => String(x.id) === String(v));
-    const a = prompt(`المبلغ المستلَم (الدين الحالي ${fmt(c.debt)}؛ أي فائض يصبح رصيداً دائناً):`, c.debt); if (a === null) return;
+    const a = prompt(`المبلغ المستلَم (الرصيد الحالي ${fmt(c.debt)}):`, c.debt); if (a === null) return;
     const rawAmount = String(a).trim()
       .replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
       .replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
