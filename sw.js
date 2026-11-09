@@ -1,7 +1,9 @@
-const CACHE_NAME = 'mystore-shell-v21';
+const CACHE_NAME = 'mystore-shell-v25';
 const APP_SHELL = [
   './',
   './index.html',
+  './styles.css',
+  './app.js',
   './manifest.webmanifest',
   './assets/icon-192.png',
   './assets/icon-512.png',
@@ -75,8 +77,10 @@ self.addEventListener('fetch', event => {
   };
 
   // الصفحة: الشبكة أولاً (تصل التحديثات فوراً) والكاش احتياطاً دون اتصال
-  if (request.mode === 'navigate') {
-    event.respondWith(fetch(request).then(store).catch(() => caches.match(request).then(c => c || caches.match('./index.html'))));
+  // ملفا الواجهة (app.js و styles.css) يُعاملان مثل الصفحة كي لا يبقى كود قديم مع HTML جديد
+  const isCode = /\/(app\.js|styles\.css)$/.test(url.pathname);
+  if (request.mode === 'navigate' || isCode) {
+    event.respondWith(fetch(request).then(store).catch(() => caches.match(request).then(c => c || (isCode ? Response.error() : caches.match('./index.html')))));
     return;
   }
   // بقية الملفات الثابتة: الكاش أولاً، ولا تُخزَّن الردود الفاشلة

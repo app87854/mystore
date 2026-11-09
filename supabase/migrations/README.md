@@ -1,8 +1,12 @@
 # Database migrations
 
-For a fresh Supabase project, apply migrations `001` through `012` in numerical order, then `014_push_webhook_notify.sql`, `015_security_hardening.sql`, `016_push_all_admins.sql`, and `017_customer_number.sql`. Migration `013_push_maintenance.sql` is optional and must not be applied without explicit review because it schedules deletion of push events and credit-alert records older than 30 days.
+For a fresh Supabase project, apply migrations `001` through `012` in numerical order, then `014_push_webhook_notify.sql`, `015_security_hardening.sql`, `016_push_all_admins.sql`, `017_customer_number.sql`, `018_allow_overpayment_credit.sql`, `019_fixes.sql`, and `020_revoke_trigger_function_execute.sql`. Migration `013_push_maintenance.sql` is optional and must not be applied without explicit review because it schedules deletion of push events and credit-alert records older than 30 days.
 
-For an existing project at migration 010, the production sequence is 011, 012, 014, 015, 016, and 017. Migration 011 uses `Africa/Tripoli`; review its warning about historical `disbursement` rows before applying it to other databases. No such historical rows were present in the pre-011 production check.
+For an existing project at migration 010, the production sequence is 011, 012, 014, 015, 016, 017, 018, 019, and 020. Migration 011 uses `Africa/Tripoli`; review its warning about historical `disbursement` rows before applying it to other databases. No such historical rows were present in the pre-011 production check.
+
+## Production status (2026-11-03)
+
+Migration 018 is applied (2026-10-21). It removes the "payment may not exceed current debt" checks from `add_payment` and from disbursement invoices in `create_debt_invoice`; an overpayment becomes a negative balance in `customer_balances` and is offset by later invoices. Migrations 019 and 020 are pending. Migration 020 revokes `EXECUTE` on the five trigger functions from `public`, `anon`, and `authenticated` (no-op on production, whose ACL already matches; it aligns fresh databases built from 012, 016, and 017 with production). Trigger functions do not need `EXECUTE` for the inserting role, and RPC functions used by the client (for example `save_push_subscription`) are untouched. Migration 019 does the following: it adds the credit-limit check to `update_debt_invoice` (applies only when an edit increases the amount; reducing an invoice is always allowed, even for a customer already over the limit), post-rounding `> 0` checks to `update_debt_invoice` and `update_payment`, a limit/debt message in `create_debt_invoice`, and `credit_check` push events when invoice amounts change or invoices are voided. Re-verify before applying.
 
 ## Production status (2026-10-07)
 

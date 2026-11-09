@@ -86,7 +86,10 @@ async function sendTestNotification(client: Client): Promise<Response> {
     url: "./",
   });
   const results = await Promise.all(subscriptions.map(async (s): Promise<string> => {
-    if (!allowedEndpoint(s.endpoint)) return "invalid-endpoint";
+    if (!allowedEndpoint(s.endpoint)) {
+      await client.from("push_subscriptions").delete().eq("endpoint", s.endpoint);
+      return "invalid-endpoint";
+    }
     try {
       await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payloadText, {
         TTL: 120, urgency: "normal",
@@ -96,7 +99,10 @@ async function sendTestNotification(client: Client): Promise<Response> {
     } catch (error) {
       const status = Number((error as { statusCode?: number })?.statusCode ?? 0);
       console.warn("Test push delivery failed", { status });
-      if (status === 404 || status === 410) return "expired";
+      if (status === 404 || status === 410) {
+        await client.from("push_subscriptions").delete().eq("endpoint", s.endpoint);
+        return "expired";
+      }
       return status === 0 || status === 429 || status >= 500 ? "retry" : "rejected";
     }
   }));
@@ -161,7 +167,7 @@ async function processEvent(client: Client, eventId: number): Promise<Outcome> {
   if (!subscriptions.length) return finish("no-subscribers");
 
   if (event.event_type === "credit_check") {
-    claimedDay = new Date().toISOString().slice(0, 10);
+    claimedDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Tripoli" }).format(new Date());
     const { error } = await client.from("push_credit_alerts").insert({ customer_id: event.customer_id, alert_date: claimedDay });
     if (error) {
       claimedDay = null;
