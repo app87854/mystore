@@ -30,9 +30,10 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "طريقة غير مسموحة" }, 405);
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!supabaseUrl || !anonKey || !serviceRoleKey) return json({ error: "إعدادات Supabase غير مكتملة" }, 500);
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) return json({ error: "غير مصرح" }, 401);
 
@@ -96,11 +97,15 @@ Deno.serve(async (req: Request) => {
     if ((count ?? 0) <= 1) return json({ error: "يجب إبقاء مدير واحد على الأقل" }, 400);
   }
   if (password && password.length < MIN_PASSWORD) return json({ error: `كلمة المرور يجب أن تكون ${MIN_PASSWORD} أحرف على الأقل` }, 400);
+  // الملف الشخصي أولاً: فشله أرجح (تفرّد اسم المستخدم)، فلا تتغير كلمة المرور إن فشل
   const { error: profileError } = await adminClient.from("profiles").update({ username, name, role }).eq("id", id);
   if (profileError) return safeError("profile update failed", profileError, "تعذر تحديث المستخدم");
   if (password) {
     const { error: passwordError } = await adminClient.auth.admin.updateUserById(id, { password });
-    if (passwordError) return safeError("password update failed", passwordError, "تعذر تغيير كلمة المرور");
+    if (passwordError) {
+      console.error("password update failed", passwordError.code ?? "", passwordError.message ?? "");
+      return json({ error: "حُفظت بيانات المستخدم لكن تعذر تغيير كلمة المرور" }, 400);
+    }
   }
   return json({ ok: true });
 });

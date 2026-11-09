@@ -16,7 +16,7 @@ begin
       values('credit_check', new.created_by, new.customer_id, new.id);
     end if;
   else
-    if new.customer_id is not null and new.kind = 'invoice'
+    if new.customer_id is not null
        and (old.total is distinct from new.total or old.voided_at is distinct from new.voided_at) then
       insert into public.push_events(event_type, actor_id, customer_id, invoice_id)
       values('credit_check', coalesce(new.voided_by, new.edited_by), new.customer_id, new.id);
@@ -29,6 +29,7 @@ begin
   return new;
 end $$;
 
-revoke all on function public.queue_invoice_push_events() from public, anon, authenticated;
+revoke all on function public.queue_invoice_push_events() from public, anon;
+grant execute on function public.queue_invoice_push_events() to authenticated;
 
 -- للتراجع: أعد تعريف الدالة من 012_web_push.sql (النسخة التي تشترط دور seller).

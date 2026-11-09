@@ -164,7 +164,10 @@ for each row execute function public.queue_customer_credit_check();
 
 revoke all on function public.queue_invoice_push_events(),
   public.queue_payment_credit_check(), public.queue_customer_credit_check()
-  from public, anon, authenticated;
+  from public, anon;
+grant execute on function public.queue_invoice_push_events(),
+  public.queue_payment_credit_check(), public.queue_customer_credit_check()
+  to authenticated;
 
 -- No trigger calls the Edge Function directly. Configure a Database Webhook on
 -- INSERT to public.push_events after deploying push-notify (see README).

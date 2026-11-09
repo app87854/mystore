@@ -99,9 +99,12 @@ $$;
 revoke all privileges on sequence public.customers_customer_no_seq
   from public, anon, authenticated;
 revoke all privileges on function public.assign_customer_no_before_insert()
-  from public, anon, authenticated;
+  from public, anon;
 revoke all privileges on function public.prevent_customer_no_update()
-  from public, anon, authenticated;
+  from public, anon;
+grant execute on function public.assign_customer_no_before_insert(),
+  public.prevent_customer_no_update()
+  to authenticated;
 
 drop trigger if exists customers_assign_customer_no on public.customers;
 create trigger customers_assign_customer_no

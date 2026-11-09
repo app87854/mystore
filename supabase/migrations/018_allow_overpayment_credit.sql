@@ -65,7 +65,7 @@ begin
     select debt into v_debt
     from public.customer_balances where id = p_customer;
     if v_limit > 0 and v_debt + v_amt > v_limit then
-      raise exception 'يتجاوز حد الائتمان';
+      raise exception 'يتجاوز حد الائتمان (الدين الحالي %، الحد %)', v_debt, v_limit;
     end if;
   end if;
   -- A disbursement may now exceed debt; the resulting negative net balance
